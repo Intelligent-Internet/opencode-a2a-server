@@ -53,11 +53,87 @@ A2A Agent Card：`http://127.0.0.1:8000/.well-known/agent-card.json`
 - `A2A_PROTOCOL_VERSION`：A2A 协议版本，默认 `0.3.0`
 - `A2A_HOST`：监听地址，默认 `127.0.0.1`
 - `A2A_PORT`：监听端口，默认 `8000`
+- `A2A_BEARER_TOKEN`：必填；用于 Bearer Token 校验，未设置则服务拒绝启动
+- `A2A_OAUTH_AUTHORIZATION_URL`：OAuth2 授权地址（预留配置）
+- `A2A_OAUTH_TOKEN_URL`：OAuth2 token 地址（预留配置）
+- `A2A_OAUTH_METADATA_URL`：OAuth2 元数据地址（可选，预留配置）
+- `A2A_OAUTH_SCOPES`：OAuth2 scopes，逗号分隔（预留配置）
 
 ## 说明
 
 - 该服务将 A2A 的 `message:send` 请求转发为 OpenCode 的 session/message 调用。
 - 任务状态默认返回 `input-required`，便于继续多轮对话。
+- 需在请求中携带 `Authorization: Bearer <token>`，否则返回 401（Agent Card 不受鉴权限制）。
+- OAuth2 相关配置目前仅用于 Agent Card 声明，鉴权校验需后续接入。
+
+## 鉴权示例（curl）
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/message:send \
+  -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <your-token>' \
+  -d '{
+    "message": {
+      "message_id": "msg-1",
+      "role": "user",
+      "parts": [{"kind": "text", "text": "你好，介绍下这个仓库"}]
+    }
+  }'
+```
+
+## a2a-sdk 客户端示例（AuthInterceptor）
+
+> 说明：a2a-sdk 0.3.17 的 REST transport 未应用 interceptors，本项目提供了修正封装。
+
+```python
+import asyncio
+import os
+
+import httpx
+from a2a.client.auth.credentials import InMemoryContextCredentialStore
+from a2a.client.auth.interceptor import AuthInterceptor
+from a2a.client.client_factory import ClientConfig
+from a2a.client.middleware import ClientCallContext
+from a2a.types import Message, Role, TextPart, TransportProtocol
+
+from opencode_a2a.a2a_client import connect_with_patched_rest
+
+
+async def main() -> None:
+    base_url = "http://127.0.0.1:8000"
+    token = os.environ["A2A_BEARER_TOKEN"]
+
+    store = InMemoryContextCredentialStore()
+    session_id = "auth-demo"
+    await store.set_credentials(session_id, "bearerAuth", token)
+
+    context = ClientCallContext(state={"sessionId": session_id})
+    interceptors = [AuthInterceptor(store)]
+    config = ClientConfig(
+        supported_transports=[TransportProtocol.http_json],
+        httpx_client=httpx.AsyncClient(),
+        streaming=False,
+    )
+
+    client = await connect_with_patched_rest(
+        base_url, client_config=config, interceptors=interceptors
+    )
+
+    message = Message(
+        message_id="msg-1",
+        role=Role.user,
+        parts=[TextPart(text="hello")],
+    )
+
+    async for _ in client.send_message(message, context=context):
+        break
+
+    await config.httpx_client.aclose()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
 ## 代码规范
 

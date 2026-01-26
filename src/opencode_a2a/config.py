@@ -31,6 +31,17 @@ def _get_float(name: str, default: float) -> float:
         return default
 
 
+def _parse_scopes(value: str | None) -> dict[str, str]:
+    if not value:
+        return {}
+    scopes: dict[str, str] = {}
+    for raw in value.split(","):
+        scope = raw.strip()
+        if scope:
+            scopes[scope] = ""
+    return scopes
+
+
 @dataclass(frozen=True)
 class Settings:
     opencode_base_url: str
@@ -48,6 +59,11 @@ class Settings:
     a2a_protocol_version: str
     a2a_host: str
     a2a_port: int
+    a2a_bearer_token: str | None
+    a2a_oauth_authorization_url: str | None
+    a2a_oauth_token_url: str | None
+    a2a_oauth_metadata_url: str | None
+    a2a_oauth_scopes: dict[str, str]
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -67,4 +83,9 @@ class Settings:
             a2a_protocol_version=_get_env("A2A_PROTOCOL_VERSION", "0.3.0"),
             a2a_host=_get_env("A2A_HOST", "127.0.0.1"),
             a2a_port=_get_int("A2A_PORT", 8000),
+            a2a_bearer_token=_get_env("A2A_BEARER_TOKEN"),
+            a2a_oauth_authorization_url=_get_env("A2A_OAUTH_AUTHORIZATION_URL"),
+            a2a_oauth_token_url=_get_env("A2A_OAUTH_TOKEN_URL"),
+            a2a_oauth_metadata_url=_get_env("A2A_OAUTH_METADATA_URL"),
+            a2a_oauth_scopes=_parse_scopes(_get_env("A2A_OAUTH_SCOPES")),
         )
