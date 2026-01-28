@@ -62,7 +62,7 @@
 - `OPENCODE_EXTRA_ARGS`：OpenCode 额外启动参数（空格分隔）
 
 - `A2A_HOST`：A2A 监听地址，默认 `127.0.0.1`
-- `A2A_PORT`：A2A 监听端口，默认 `8000`
+- `A2A_PORT`：A2A 监听端口，默认 `8000`（多实例时需为每个项目分配不同端口）
 - `A2A_PUBLIC_URL`：对外可访问的 A2A URL，默认 `http://<A2A_HOST>:<A2A_PORT>`
 - `A2A_LOG_LEVEL`：A2A 日志级别，默认 `info`
 
