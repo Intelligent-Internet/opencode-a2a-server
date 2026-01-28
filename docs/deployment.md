@@ -111,6 +111,34 @@ sudo systemctl status opencode@<project>.service
 sudo systemctl status opencode-a2a@<project>.service
 ```
 
+## 日志查看
+
+查看最近日志：
+
+```bash
+sudo journalctl -u opencode@<project>.service -n 200 --no-pager
+sudo journalctl -u opencode-a2a@<project>.service -n 200 --no-pager
+```
+
+实时跟踪：
+
+```bash
+sudo journalctl -u opencode@<project>.service -f
+sudo journalctl -u opencode-a2a@<project>.service -f
+```
+
+只看错误级别：
+
+```bash
+sudo journalctl -u opencode@<project>.service -p err --no-pager
+```
+
+按时间范围过滤：
+
+```bash
+sudo journalctl -u opencode@<project>.service --since "2026-01-28 14:40" --no-pager
+```
+
 停止服务：
 
 ```bash
