@@ -70,8 +70,8 @@
 - `OPENCODE_BIND_PORT`：OpenCode 监听端口，默认 `4096`（多实例时需为每个项目分配不同端口；未显式设置时，脚本会尝试用 `A2A_PORT + 1` 自动分配）
 - `OPENCODE_LOG_LEVEL`：OpenCode 日志级别，默认 `INFO`
 - `OPENCODE_EXTRA_ARGS`：OpenCode 额外启动参数（空格分隔）
-- `OPENCODE_PROVIDER_ID`：OpenCode 默认 provider（写入 `opencode.env`）
-- `OPENCODE_MODEL_ID`：OpenCode 默认 model（写入 `opencode.env`）
+- `OPENCODE_PROVIDER_ID`：OpenCode 默认 provider（写入 `a2a.env`）
+- `OPENCODE_MODEL_ID`：OpenCode 默认 model（写入 `a2a.env`）
 - `OPENCODE_TIMEOUT`：请求超时秒数，默认 `300`
 
 - `A2A_HOST`：A2A 监听地址，默认 `127.0.0.1`（也可通过 `deploy.sh` 的 `a2a_host=...` 参数设置）
@@ -85,7 +85,7 @@
 每个项目会生成（路径位于 `/data/projects/<project>/config/`，不同项目不会重名）：
 
 - `config/opencode.env`：仅 OpenCode 读取（包含 `GH_TOKEN` 与 Git 身份配置）
-- `config/a2a.env`：仅 A2A 读取（包含 `A2A_BEARER_TOKEN`）
+- `config/a2a.env`：仅 A2A 读取（包含 `A2A_BEARER_TOKEN`，以及 `OPENCODE_PROVIDER_ID/OPENCODE_MODEL_ID` 等模型配置）
 
 `GOOGLE_GENERATIVE_AI_API_KEY` 不会写入任何配置文件。可在部署时通过环境变量或 `google_generative_ai_api_key` 参数注入，并以 systemd runtime 方式仅作用于 `opencode@` 进程。系统重启后需重新注入。
 
