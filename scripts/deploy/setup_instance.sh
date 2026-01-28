@@ -87,9 +87,9 @@ sudo install -m 600 -o root -g root "$a2a_env_tmp" "$CONFIG_DIR/a2a.env"
 rm -f "$a2a_env_tmp"
 
 if [[ -n "${REPO_URL:-}" ]]; then
-  if [[ -d "${WORKSPACE_DIR}/.git" ]]; then
+  if sudo -u "$PROJECT_NAME" -H test -d "${WORKSPACE_DIR}/.git"; then
     echo "Workspace already initialized; skipping clone."
-  elif [[ -n "$(ls -A "$WORKSPACE_DIR")" ]]; then
+  elif [[ -n "$(sudo -u "$PROJECT_NAME" -H ls -A "$WORKSPACE_DIR" 2>/dev/null)" ]]; then
     echo "Workspace is not empty; skipping clone." >&2
   else
     clone_args=("$REPO_URL" "$WORKSPACE_DIR")
