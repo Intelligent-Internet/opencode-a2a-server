@@ -35,6 +35,10 @@ A2A Agent Card：`http://127.0.0.1:8000/.well-known/agent-card.json`
 脚本会常驻运行，按 Ctrl+C 退出时会自动停止启动的服务。
 每次启动会创建带时间戳的日志目录（默认在 `./logs/<timestamp>`），分别记录 OpenCode 与 A2A 日志。
 
+### 部署（systemd 多实例）
+
+详见 `docs/deployment.md`。
+
 ## 环境变量
 
 - `OPENCODE_BASE_URL`：OpenCode 地址，默认 `http://127.0.0.1:4096`

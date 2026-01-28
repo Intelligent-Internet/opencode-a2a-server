@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Install systemd template units for OpenCode and A2A.
+# Requires env: OPENCODE_A2A_DIR, OPENCODE_CORE_DIR, UV_PYTHON_DIR, DATA_ROOT.
+# Requires sudo to write /etc/systemd/system.
 set -euo pipefail
 
 : "${OPENCODE_A2A_DIR:?}"

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Create project user, directories, and env files for systemd services.
+# Usage: ./setup_instance.sh <project_name> <github_token> <a2a_bearer_token>
+# Requires env: DATA_ROOT, OPENCODE_BIND_HOST, OPENCODE_BIND_PORT, OPENCODE_LOG_LEVEL,
+#               A2A_HOST, A2A_PORT, A2A_PUBLIC_URL.
 set -euo pipefail
 
 PROJECT_NAME="${1:-}"

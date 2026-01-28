@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Wrapper to run opencode serve with configured host/port/logging.
 set -euo pipefail
 
 OPENCODE_CORE_DIR="${OPENCODE_CORE_DIR:-/opt/.opencode}"

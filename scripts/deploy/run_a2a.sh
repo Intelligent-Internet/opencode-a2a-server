@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Wrapper to run opencode-a2a from the shared venv.
 set -euo pipefail
 
 OPENCODE_A2A_DIR="${OPENCODE_A2A_DIR:-/opt/opencode-a2a/opencode-a2a-serve}"

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Enable and start systemd services for a project.
+# Usage: ./enable_instance.sh <project_name>
+# Requires sudo to manage systemd services.
 set -euo pipefail
 
 PROJECT_NAME="${1:-}"

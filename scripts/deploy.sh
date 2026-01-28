@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+# Deploy an isolated OpenCode + A2A instance (systemd services).
+# Usage: ./deploy.sh <project_name> <github_token> <a2a_bearer_token> [a2a_port]
+# Requires: sudo access to write systemd units and create users/directories.
+#
+# Key environment variables (optional):
+# - OPENCODE_A2A_DIR: path to opencode-a2a-serve repo (default: /opt/opencode-a2a/opencode-a2a-serve)
+# - OPENCODE_CORE_DIR: path to opencode core (default: /opt/.opencode)
+# - UV_PYTHON_DIR: path to uv python pool (default: /opt/uv-python)
+# - DATA_ROOT: projects root (default: /data/projects)
+# - OPENCODE_BIND_HOST/OPENCODE_BIND_PORT/OPENCODE_LOG_LEVEL/OPENCODE_EXTRA_ARGS
+# - A2A_HOST/A2A_PORT/A2A_PUBLIC_URL/A2A_LOG_LEVEL
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
