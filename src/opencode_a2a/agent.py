@@ -257,9 +257,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                         if isinstance(delta, str) and delta:
                             chunk_text = delta
                             buffered_text += delta
-                        elif part.get("type") == "text" and isinstance(
-                            part.get("text"), str
-                        ):
+                        elif part.get("type") == "text" and isinstance(part.get("text"), str):
                             next_text = part["text"]
                             if next_text != buffered_text:
                                 if next_text.startswith(buffered_text):

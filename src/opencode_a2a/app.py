@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 
 class StreamingCallContextBuilder(DefaultCallContextBuilder):
-    def build(self, request: Request) -> "ServerCallContext":
+    def build(self, request: Request) -> ServerCallContext:
         context = super().build(request)
         path = request.url.path
         raw_path = request.scope.get("raw_path")
