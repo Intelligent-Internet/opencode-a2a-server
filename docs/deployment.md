@@ -76,10 +76,12 @@
 
 每个项目会生成（路径位于 `/data/projects/<project>/config/`，不同项目不会重名）：
 
-- `config/opencode.env`：仅 OpenCode 读取
-- `config/a2a.env`：仅 A2A 读取（包含 `GH_TOKEN` 与 `A2A_BEARER_TOKEN`）
+- `config/opencode.env`：仅 OpenCode 读取（包含 `GH_TOKEN` 与 Git 身份配置）
+- `config/a2a.env`：仅 A2A 读取（包含 `A2A_BEARER_TOKEN`）
 
 `GOOGLE_GENERATIVE_AI_API_KEY` 不会写入任何配置文件。可在部署时通过环境变量或 `google_generative_ai_api_key` 参数注入，并以 systemd runtime 方式仅作用于 `opencode@` 进程。系统重启后需重新注入。
+
+为保障私有仓库访问，`github_token` 会写入 `config/opencode.env`，并结合 `GIT_ASKPASS` 注入到 OpenCode 进程中使用。该文件权限为 600（root-only）。
 
 若 systemd 不支持 `set-property Environment`，脚本会退化为临时设置 systemd manager 环境变量并立即启动服务，随后清理该环境变量，避免长期暴露。
 

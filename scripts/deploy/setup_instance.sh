@@ -27,6 +27,7 @@ WORKSPACE_DIR="${PROJECT_DIR}/workspace"
 CONFIG_DIR="${PROJECT_DIR}/config"
 LOG_DIR="${PROJECT_DIR}/logs"
 RUN_DIR="${PROJECT_DIR}/run"
+ASKPASS_SCRIPT="${RUN_DIR}/git-askpass.sh"
 
 if ! id "$PROJECT_NAME" &>/dev/null; then
   sudo adduser --system --group --home "$PROJECT_DIR" "$PROJECT_NAME"
@@ -36,12 +37,32 @@ sudo install -d -m 711 -o root -g root "$DATA_ROOT"
 sudo install -d -m 700 -o "$PROJECT_NAME" -g "$PROJECT_NAME" "$PROJECT_DIR" "$WORKSPACE_DIR" "$LOG_DIR" "$RUN_DIR"
 sudo install -d -m 700 -o root -g root "$CONFIG_DIR"
 
+askpass_tmp="$(mktemp)"
+cat <<'SCRIPT' >"$askpass_tmp"
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) echo "x-access-token" ;;
+  *Password*) echo "${GH_TOKEN}" ;;
+  *) echo "" ;;
+esac
+SCRIPT
+sudo install -m 700 -o "$PROJECT_NAME" -g "$PROJECT_NAME" "$askpass_tmp" "$ASKPASS_SCRIPT"
+rm -f "$askpass_tmp"
+
 opencode_env_tmp="$(mktemp)"
 {
   echo "OPENCODE_LOG_LEVEL=${OPENCODE_LOG_LEVEL}"
   echo "OPENCODE_BIND_HOST=${OPENCODE_BIND_HOST}"
   echo "OPENCODE_BIND_PORT=${OPENCODE_BIND_PORT}"
   echo "OPENCODE_EXTRA_ARGS=${OPENCODE_EXTRA_ARGS:-}"
+  echo "GH_TOKEN=${GH_TOKEN}"
+  echo "GIT_ASKPASS=${ASKPASS_SCRIPT}"
+  echo "GIT_ASKPASS_REQUIRE=force"
+  echo "GIT_TERMINAL_PROMPT=0"
+  echo "GIT_AUTHOR_NAME=OpenCode-${PROJECT_NAME}"
+  echo "GIT_COMMITTER_NAME=OpenCode-${PROJECT_NAME}"
+  echo "GIT_AUTHOR_EMAIL=${PROJECT_NAME}@internal"
+  echo "GIT_COMMITTER_EMAIL=${PROJECT_NAME}@internal"
   if [[ -n "${OPENCODE_PROVIDER_ID:-}" ]]; then
     echo "OPENCODE_PROVIDER_ID=${OPENCODE_PROVIDER_ID}"
   fi
@@ -61,11 +82,6 @@ A2A_BEARER_TOKEN=${A2A_BEARER_TOKEN}
 OPENCODE_BASE_URL=http://${OPENCODE_BIND_HOST}:${OPENCODE_BIND_PORT}
 OPENCODE_DIRECTORY=${WORKSPACE_DIR}
 OPENCODE_TIMEOUT=120
-GH_TOKEN=${GH_TOKEN}
-GIT_AUTHOR_NAME=OpenCode-${PROJECT_NAME}
-GIT_COMMITTER_NAME=OpenCode-${PROJECT_NAME}
-GIT_AUTHOR_EMAIL=${PROJECT_NAME}@internal
-GIT_COMMITTER_EMAIL=${PROJECT_NAME}@internal
 ENV
 sudo install -m 600 -o root -g root "$a2a_env_tmp" "$CONFIG_DIR/a2a.env"
 rm -f "$a2a_env_tmp"
