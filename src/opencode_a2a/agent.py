@@ -251,6 +251,13 @@ class OpencodeAgentExecutor(AgentExecutor):
                         part = props.get("part") or {}
                         if part.get("sessionID") != session_id:
                             continue
+                        role = part.get("role") or props.get("role")
+                        if role is None:
+                            message = props.get("message")
+                            if isinstance(message, dict):
+                                role = message.get("role")
+                        if isinstance(role, str) and role.lower() in {"user", "system"}:
+                            continue
                         delta = props.get("delta")
                         chunk_text: str | None = None
                         append = True
