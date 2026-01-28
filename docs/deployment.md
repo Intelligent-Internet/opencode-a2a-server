@@ -5,9 +5,10 @@
 ## 前置条件
 
 - 具备 `sudo` 权限（写入 systemd unit、创建用户与目录）。
-- OpenCode 核心已安装在共享目录（默认 `/opt/.opencode`）。
-- 本仓库已部署在共享目录（默认 `/opt/opencode-a2a/opencode-a2a-serve`）。
+- OpenCode 核心已安装在共享目录（默认 `/opt/.opencode`，可用 `OPENCODE_CORE_DIR` 覆盖）。
+- 本仓库已部署在共享目录（默认 `/opt/opencode-a2a/opencode-a2a-serve`，可用 `OPENCODE_A2A_DIR` 覆盖）。
 - A2A 的 venv 已准备好（默认 `${OPENCODE_A2A_DIR}/.venv/bin/opencode-a2a`）。
+- uv Python 池已准备好（默认 `/opt/uv-python`，可用 `UV_PYTHON_DIR` 覆盖）。
 - systemd 可用。
 
 > 目录默认值可通过环境变量覆盖，见下文配置说明。
