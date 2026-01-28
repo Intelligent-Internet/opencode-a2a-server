@@ -57,7 +57,7 @@
 - `DATA_ROOT`：项目根目录，默认 `/data/projects`
 
 - `OPENCODE_BIND_HOST`：OpenCode 监听地址，默认 `127.0.0.1`
-- `OPENCODE_BIND_PORT`：OpenCode 监听端口，默认 `4096`
+- `OPENCODE_BIND_PORT`：OpenCode 监听端口，默认 `4096`（多实例时需为每个项目分配不同端口）
 - `OPENCODE_LOG_LEVEL`：OpenCode 日志级别，默认 `INFO`
 - `OPENCODE_EXTRA_ARGS`：OpenCode 额外启动参数（空格分隔）
 
