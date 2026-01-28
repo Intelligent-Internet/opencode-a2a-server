@@ -114,7 +114,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                         context_id=context_id,
                         status=TaskStatus(
                             state=TaskState.input_required,
-                            message=assistant_message,
                         ),
                         final=True,
                         metadata={
@@ -219,7 +218,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=task_id,
                     context_id=context_id,
-                    status=TaskStatus(state=TaskState.failed, message=error_message),
+                    status=TaskStatus(state=TaskState.failed),
                     final=True,
                 )
             )
