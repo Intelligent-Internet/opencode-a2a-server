@@ -5,13 +5,40 @@
 ## 前置条件
 
 - 具备 `sudo` 权限（写入 systemd unit、创建用户与目录）。
-- OpenCode 核心已安装在共享目录（默认 `/opt/.opencode`，可用 `OPENCODE_CORE_DIR` 覆盖）。
-- 本仓库已部署在共享目录（默认 `/opt/opencode-a2a/opencode-a2a-serve`，可用 `OPENCODE_A2A_DIR` 覆盖）。
+- OpenCode 核心已安装在共享目录（默认 `/opt/.opencode`，如需改路径请修改 `scripts/init_system.sh` 顶部变量）。
+- 本仓库已部署在共享目录（默认 `/opt/opencode-a2a/opencode-a2a-serve`，如需改路径请修改 `scripts/init_system.sh` 顶部变量）。
 - A2A 的 venv 已准备好（默认 `${OPENCODE_A2A_DIR}/.venv/bin/opencode-a2a`）。
-- uv Python 池已准备好（默认 `/opt/uv-python`，可用 `UV_PYTHON_DIR` 覆盖）。
+- uv Python 池已准备好（默认 `/opt/uv-python`，如需改路径请修改 `scripts/init_system.sh` 顶部变量）。
 - systemd 可用。
 
-> 目录默认值可通过环境变量覆盖，见下文配置说明。
+> 共享路径默认值在 `scripts/init_system.sh` 顶部变量；`deploy.sh` 仍支持通过环境变量覆盖（需确保与实际目录一致）。
+
+## 系统环境初始化（可选）
+
+如需一键准备上述基础环境，可先运行：
+
+```bash
+./scripts/init_system.sh
+```
+
+脚本特点：
+- 可重复执行，已满足的步骤会自动跳过。
+- 与 `deploy.sh` 解耦，仅负责系统与共享环境准备。
+
+默认行为：
+- 安装基础工具（`htop`、`vim`、`curl`、`wget`、`git`、`net-tools`、`lsblk`、`ca-certificates`）与 `gh`（添加官方源）。
+- 安装 Node.js ≥ 20（含 `npm`/`npx`，下载 NodeSource 安装脚本、校验后执行，或使用系统包）。
+- 安装 `uv`（若未安装，下载脚本校验后执行），并预下载 Python 版本 `3.10/3.11/3.12/3.13`（若缺失才安装）。
+- 创建共享目录（`/opt/.opencode`、`/opt/opencode-a2a`、`/opt/uv-python`、`/data/projects`），并为 `/opt/uv-python` 设置权限（默认先 `777`，预下载完成后递归调整为 `755`；可在 `scripts/init_system.sh` 顶部变量中调整）。
+- 若系统缺少 systemd（`systemctl` 不存在），脚本将直接失败退出。
+- 克隆 `opencode-a2a-serve` 仓库到共享目录（若不存在，默认使用 SSH 地址）。
+- 创建 A2A venv（`uv sync --all-extras`）。
+
+常用参数/环境变量：
+
+> 若服务器未配置 SSH key，请先配置 SSH key，或在脚本顶部修改 `OPENCODE_A2A_REPO` 使用 HTTPS 克隆；否则脚本会提示手动 clone。
+
+> 脚本无运行参数，默认行为（含 Node 版本/安装开关）请直接修改 `scripts/init_system.sh` 顶部的变量。
 
 ## 目录结构
 
@@ -61,11 +88,6 @@
 
 可在运行 `deploy.sh` 前设置（未设置时使用默认值）：
 
-- `OPENCODE_A2A_DIR`：A2A 仓库路径，默认 `/opt/opencode-a2a/opencode-a2a-serve`
-- `OPENCODE_CORE_DIR`：OpenCode 核心路径，默认 `/opt/.opencode`
-- `UV_PYTHON_DIR`：uv Python 池路径，默认 `/opt/uv-python`
-- `DATA_ROOT`：项目根目录，默认 `/data/projects`
-
 - `OPENCODE_BIND_HOST`：OpenCode 监听地址，默认 `127.0.0.1`（映射到 `opencode serve --hostname`）
 - `OPENCODE_BIND_PORT`：OpenCode 监听端口，默认 `4096`（多实例时需为每个项目分配不同端口；未显式设置时，脚本会尝试用 `A2A_PORT + 1` 自动分配）
 - `OPENCODE_LOG_LEVEL`：OpenCode 日志级别，默认 `DEBUG`（脚本内默认）
@@ -81,6 +103,8 @@
 - `A2A_LOG_LEVEL`：A2A 日志级别，默认 `DEBUG`（脚本内默认）
 - `A2A_LOG_PAYLOADS`：是否记录 A2A 与 OpenCode 请求/响应正文，默认 `true`（脚本内默认）
 - `A2A_LOG_BODY_LIMIT`：日志正文最大长度，默认 `0`（不截断）
+
+> 共享路径（`OPENCODE_A2A_DIR`/`OPENCODE_CORE_DIR`/`UV_PYTHON_DIR`/`DATA_ROOT`）默认从 `scripts/init_system.sh` 顶部变量读取；`deploy.sh` 仍支持环境变量覆盖（需确保与实际目录一致）。
 - `A2A_STREAMING`：是否启用 SSE streaming（`/v1/message:stream`），默认 `true`
 
 ### 实例配置文件
