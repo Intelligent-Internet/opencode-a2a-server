@@ -205,6 +205,7 @@ def create_app(settings: Settings) -> FastAPI:
 settings = Settings.from_env()
 app = create_app(settings)
 
+
 def _normalize_log_level(value: str) -> str:
     normalized = (value or "").strip().upper()
     if normalized in {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}:
