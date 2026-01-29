@@ -68,7 +68,7 @@
 
 - `OPENCODE_BIND_HOST`：OpenCode 监听地址，默认 `127.0.0.1`（映射到 `opencode serve --hostname`）
 - `OPENCODE_BIND_PORT`：OpenCode 监听端口，默认 `4096`（多实例时需为每个项目分配不同端口；未显式设置时，脚本会尝试用 `A2A_PORT + 1` 自动分配）
-- `OPENCODE_LOG_LEVEL`：OpenCode 日志级别，默认 `INFO`
+- `OPENCODE_LOG_LEVEL`：OpenCode 日志级别，默认 `DEBUG`（脚本内默认）
 - `OPENCODE_EXTRA_ARGS`：OpenCode 额外启动参数（空格分隔）
 - `OPENCODE_PROVIDER_ID`：OpenCode 默认 provider（写入 `a2a.env`）
 - `OPENCODE_MODEL_ID`：OpenCode 默认 model（写入 `a2a.env`）
@@ -77,7 +77,9 @@
 - `A2A_HOST`：A2A 监听地址，默认 `127.0.0.1`（也可通过 `deploy.sh` 的 `a2a_host=...` 参数设置）
 - `A2A_PORT`：A2A 监听端口，默认 `8000`（多实例时需为每个项目分配不同端口）
 - `A2A_PUBLIC_URL`：对外可访问的 A2A URL，默认 `http://<A2A_HOST>:<A2A_PORT>`
-- `A2A_LOG_LEVEL`：A2A 日志级别，默认 `INFO`
+- `A2A_LOG_LEVEL`：A2A 日志级别，默认 `DEBUG`（脚本内默认）
+- `A2A_LOG_PAYLOADS`：是否记录 A2A 与 OpenCode 请求/响应正文，默认 `true`（脚本内默认）
+- `A2A_LOG_BODY_LIMIT`：日志正文最大长度，默认 `0`（不截断）
 - `A2A_STREAMING`：是否启用 SSE streaming（`/v1/message:stream`），默认 `true`
 
 ### 实例配置文件

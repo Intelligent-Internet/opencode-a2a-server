@@ -24,6 +24,7 @@ from a2a.types import (
 )
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.responses import StreamingResponse
 
 from .agent import OpencodeAgentExecutor
 from .config import Settings
@@ -160,6 +161,41 @@ def create_app(settings: Settings) -> FastAPI:
         http_handler=handler,
         context_builder=StreamingCallContextBuilder(),
     ).build(title=settings.a2a_title, version=settings.a2a_version, lifespan=lifespan)
+
+    @app.middleware("http")
+    async def log_payloads(request: Request, call_next):
+        if not settings.a2a_log_payloads:
+            return await call_next(request)
+
+        body = await request.body()
+        request._body = body  # allow downstream to read again
+        body_text = body.decode("utf-8", errors="replace")
+        limit = settings.a2a_log_body_limit
+        if limit > 0 and len(body_text) > limit:
+            body_text = f"{body_text[:limit]}...[truncated]"
+        logger.debug(
+            "A2A request %s %s body=%s",
+            request.method,
+            request.url.path,
+            body_text,
+        )
+
+        response = await call_next(request)
+        if isinstance(response, StreamingResponse):
+            logger.debug("A2A response %s streaming", request.url.path)
+            return response
+
+        response_body = getattr(response, "body", b"") or b""
+        resp_text = response_body.decode("utf-8", errors="replace")
+        if limit > 0 and len(resp_text) > limit:
+            resp_text = f"{resp_text[:limit]}...[truncated]"
+        logger.debug(
+            "A2A response %s status=%s body=%s",
+            request.url.path,
+            response.status_code,
+            resp_text,
+        )
+        return response
 
     add_auth_middleware(app, settings)
 

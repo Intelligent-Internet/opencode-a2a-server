@@ -115,7 +115,7 @@ if [[ -n "$OPENCODE_TIMEOUT_INPUT" ]]; then
 fi
 
 export OPENCODE_BIND_HOST="${OPENCODE_BIND_HOST:-127.0.0.1}"
-export OPENCODE_LOG_LEVEL="${OPENCODE_LOG_LEVEL:-INFO}"
+export OPENCODE_LOG_LEVEL="${OPENCODE_LOG_LEVEL:-DEBUG}"
 export OPENCODE_EXTRA_ARGS="${OPENCODE_EXTRA_ARGS:-}"
 
 if [[ -n "$A2A_HOST_INPUT" ]]; then
@@ -137,8 +137,10 @@ if [[ -z "${OPENCODE_BIND_PORT:-}" ]]; then
   fi
 fi
 export A2A_PUBLIC_URL="${A2A_PUBLIC_URL:-http://${A2A_HOST}:${A2A_PORT}}"
-export A2A_LOG_LEVEL="${A2A_LOG_LEVEL:-info}"
+export A2A_LOG_LEVEL="${A2A_LOG_LEVEL:-DEBUG}"
 export A2A_STREAMING="${A2A_STREAMING:-true}"
+export A2A_LOG_PAYLOADS="${A2A_LOG_PAYLOADS:-true}"
+export A2A_LOG_BODY_LIMIT="${A2A_LOG_BODY_LIMIT:-0}"
 
 is_truthy() {
   case "${1,,}" in

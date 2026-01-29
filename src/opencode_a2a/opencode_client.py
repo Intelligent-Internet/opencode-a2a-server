@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+import logging
 
 from .config import Settings
 
@@ -28,6 +29,7 @@ class OpencodeClient:
         self._agent = settings.opencode_agent
         self._system = settings.opencode_system
         self._variant = settings.opencode_variant
+        self._log_payloads = settings.a2a_log_payloads
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=settings.opencode_timeout,
@@ -111,6 +113,10 @@ class OpencodeClient:
         if self._variant:
             payload["variant"] = self._variant
 
+        if self._log_payloads:
+            logger = logging.getLogger(__name__)
+            logger.debug("OpenCode request payload=%s", payload)
+
         response = await self._client.post(
             f"/session/{session_id}/message",
             params=self._query_params(),
@@ -118,6 +124,9 @@ class OpencodeClient:
         )
         response.raise_for_status()
         data = response.json()
+        if self._log_payloads:
+            logger = logging.getLogger(__name__)
+            logger.debug("OpenCode response payload=%s", data)
         parts = data.get("parts", [])
         text_content = _extract_text(parts)
         message_id = None
