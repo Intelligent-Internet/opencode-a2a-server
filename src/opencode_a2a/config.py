@@ -31,6 +31,28 @@ def _get_float(name: str, default: float) -> float:
         return default
 
 
+def _get_optional_float(name: str) -> float | None:
+    value = _get_env(name)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _get_bool(name: str, default: bool) -> bool:
+    value = _get_env(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def _parse_scopes(value: str | None) -> dict[str, str]:
     if not value:
         return {}
@@ -52,11 +74,16 @@ class Settings:
     opencode_system: str | None
     opencode_variant: str | None
     opencode_timeout: float
+    opencode_timeout_stream: float | None
     a2a_public_url: str
     a2a_title: str
     a2a_description: str
     a2a_version: str
     a2a_protocol_version: str
+    a2a_streaming: bool
+    a2a_log_level: str
+    a2a_log_payloads: bool
+    a2a_log_body_limit: int
     a2a_host: str
     a2a_port: int
     a2a_bearer_token: str | None
@@ -76,11 +103,16 @@ class Settings:
             opencode_system=_get_env("OPENCODE_SYSTEM"),
             opencode_variant=_get_env("OPENCODE_VARIANT"),
             opencode_timeout=_get_float("OPENCODE_TIMEOUT", 120.0),
+            opencode_timeout_stream=_get_optional_float("OPENCODE_TIMEOUT_STREAM"),
             a2a_public_url=_get_env("A2A_PUBLIC_URL", "http://127.0.0.1:8000"),
             a2a_title=_get_env("A2A_TITLE", "OpenCode A2A"),
             a2a_description=_get_env("A2A_DESCRIPTION", "A2A wrapper service for OpenCode"),
             a2a_version=_get_env("A2A_VERSION", "0.1.0"),
             a2a_protocol_version=_get_env("A2A_PROTOCOL_VERSION", "0.3.0"),
+            a2a_streaming=_get_bool("A2A_STREAMING", True),
+            a2a_log_level=_get_env("A2A_LOG_LEVEL", "INFO"),
+            a2a_log_payloads=_get_bool("A2A_LOG_PAYLOADS", False),
+            a2a_log_body_limit=_get_int("A2A_LOG_BODY_LIMIT", 0),
             a2a_host=_get_env("A2A_HOST", "127.0.0.1"),
             a2a_port=_get_int("A2A_PORT", 8000),
             a2a_bearer_token=_get_env("A2A_BEARER_TOKEN"),

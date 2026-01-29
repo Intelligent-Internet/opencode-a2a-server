@@ -2,6 +2,12 @@
 
 这是一个将 OpenCode 服务封装为 A2A HTTP+JSON 服务的适配层。
 
+## 项目价值
+
+- 将 OpenCode 的会话调用统一为 A2A 标准接口，便于接入 A2A 生态或现有代理体系。
+- 提供可对外暴露的 Agent Card 与标准化鉴权入口，减少上层集成成本。
+- 支持 A2A REST 调用与可选的 SSE streaming，便于前后端与自动化场景复用。
+
 ## 运行方式
 
 1) 先启动 OpenCode：
@@ -26,18 +32,13 @@ uv run opencode-a2a
 
 A2A Agent Card：`http://127.0.0.1:8000/.well-known/agent-card.json`
 
-### 使用脚本（自动启动 OpenCode + 绑定 Tailscale IP）
+### 脚本（本地/临时启动）
 
-```bash
-./scripts/start_services.sh
-```
-
-脚本会常驻运行，按 Ctrl+C 退出时会自动停止启动的服务。
-每次启动会创建带时间戳的日志目录（默认在 `./logs/<timestamp>`），分别记录 OpenCode 与 A2A 日志。
+脚本说明与使用方式见 `scripts/README.md`。
 
 ### 部署（systemd 多实例）
 
-详见 `docs/deployment.md`。
+systemd 部署流程详见 `docs/deployment.md`。
 
 ## 环境变量
 
@@ -49,6 +50,7 @@ A2A Agent Card：`http://127.0.0.1:8000/.well-known/agent-card.json`
 - `OPENCODE_SYSTEM`：system prompt（可选）
 - `OPENCODE_VARIANT`：variant（可选）
 - `OPENCODE_TIMEOUT`：请求超时秒数，默认 `120`（systemd 部署模板默认写入 `300`）
+- `OPENCODE_TIMEOUT_STREAM`：streaming 请求超时秒数（可选；不设置则不限制）
 
 - `A2A_PUBLIC_URL`：对外可访问的 A2A 地址前缀，默认 `http://127.0.0.1:8000`
 - `A2A_TITLE`：Agent 名称，默认 `OpenCode A2A`
@@ -58,6 +60,10 @@ A2A Agent Card：`http://127.0.0.1:8000/.well-known/agent-card.json`
 - `A2A_HOST`：监听地址，默认 `127.0.0.1`
 - `A2A_PORT`：监听端口，默认 `8000`
 - `A2A_BEARER_TOKEN`：必填；用于 Bearer Token 校验，未设置则服务拒绝启动
+- `A2A_STREAMING`：是否启用 SSE streaming（`/v1/message:stream`），默认 `true`
+- `A2A_LOG_LEVEL`：A2A 服务日志级别（`DEBUG/INFO/WARNING/ERROR`），默认 `INFO`
+- `A2A_LOG_PAYLOADS`：是否记录 A2A 与 OpenCode 的请求/响应正文，默认 `false`
+- `A2A_LOG_BODY_LIMIT`：日志正文最大长度，默认 `0`（不截断）
 - `A2A_OAUTH_AUTHORIZATION_URL`：OAuth2 授权地址（预留配置）
 - `A2A_OAUTH_TOKEN_URL`：OAuth2 token 地址（预留配置）
 - `A2A_OAUTH_METADATA_URL`：OAuth2 元数据地址（可选，预留配置）
@@ -67,6 +73,7 @@ A2A Agent Card：`http://127.0.0.1:8000/.well-known/agent-card.json`
 
 - 该服务将 A2A 的 `message:send` 请求转发为 OpenCode 的 session/message 调用。
 - 任务状态默认返回 `input-required`，便于继续多轮对话。
+- streaming（`/v1/message:stream`）会输出 `TaskArtifactUpdateEvent` 增量（`append=true`），结束时发送 `TaskStatusUpdateEvent(final=true)`；完整内容由 artifact 承载，非 streaming 调用仍返回 `Task`。
 - 需在请求中携带 `Authorization: Bearer <token>`，否则返回 401（Agent Card 不受鉴权限制）。
 - OAuth2 相关配置目前仅用于 Agent Card 声明，鉴权校验需后续接入。
 
@@ -84,6 +91,10 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
     }
   }'
 ```
+
+## Streaming 断线续订（resubscribe）
+
+当 SSE 连接中断时，可通过 `POST /v1/tasks/{task_id}:resubscribe` 重新订阅事件流（需保持 task 未进入终态）。
 
 ## a2a-sdk 客户端示例（AuthInterceptor）
 

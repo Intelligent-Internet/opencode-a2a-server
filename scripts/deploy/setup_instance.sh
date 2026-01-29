@@ -21,6 +21,7 @@ fi
 : "${A2A_HOST:?}"
 : "${A2A_PORT:?}"
 : "${A2A_PUBLIC_URL:?}"
+: "${A2A_STREAMING:=true}"
 
 PROJECT_DIR="${DATA_ROOT}/${PROJECT_NAME}"
 WORKSPACE_DIR="${PROJECT_DIR}/workspace"
@@ -74,15 +75,28 @@ sudo install -m 600 -o root -g root "$opencode_env_tmp" "$CONFIG_DIR/opencode.en
 rm -f "$opencode_env_tmp"
 
 a2a_env_tmp="$(mktemp)"
-cat <<ENV >"$a2a_env_tmp"
-A2A_HOST=${A2A_HOST}
-A2A_PORT=${A2A_PORT}
-A2A_PUBLIC_URL=${A2A_PUBLIC_URL}
-A2A_BEARER_TOKEN=${A2A_BEARER_TOKEN}
-OPENCODE_BASE_URL=http://${OPENCODE_BIND_HOST}:${OPENCODE_BIND_PORT}
-OPENCODE_DIRECTORY=${WORKSPACE_DIR}
-OPENCODE_TIMEOUT=${OPENCODE_TIMEOUT:-300}
-ENV
+{
+  echo "A2A_HOST=${A2A_HOST}"
+  echo "A2A_PORT=${A2A_PORT}"
+  echo "A2A_PUBLIC_URL=${A2A_PUBLIC_URL}"
+  echo "A2A_BEARER_TOKEN=${A2A_BEARER_TOKEN}"
+  echo "A2A_STREAMING=${A2A_STREAMING}"
+  echo "A2A_LOG_LEVEL=${A2A_LOG_LEVEL:-INFO}"
+  echo "A2A_LOG_PAYLOADS=${A2A_LOG_PAYLOADS:-false}"
+  echo "A2A_LOG_BODY_LIMIT=${A2A_LOG_BODY_LIMIT:-0}"
+  echo "OPENCODE_BASE_URL=http://${OPENCODE_BIND_HOST}:${OPENCODE_BIND_PORT}"
+  echo "OPENCODE_DIRECTORY=${WORKSPACE_DIR}"
+  echo "OPENCODE_TIMEOUT=${OPENCODE_TIMEOUT:-300}"
+  if [[ -n "${OPENCODE_TIMEOUT_STREAM:-}" ]]; then
+    echo "OPENCODE_TIMEOUT_STREAM=${OPENCODE_TIMEOUT_STREAM}"
+  fi
+  if [[ -n "${OPENCODE_PROVIDER_ID:-}" ]]; then
+    echo "OPENCODE_PROVIDER_ID=${OPENCODE_PROVIDER_ID}"
+  fi
+  if [[ -n "${OPENCODE_MODEL_ID:-}" ]]; then
+    echo "OPENCODE_MODEL_ID=${OPENCODE_MODEL_ID}"
+  fi
+} >"$a2a_env_tmp"
 sudo install -m 600 -o root -g root "$a2a_env_tmp" "$CONFIG_DIR/a2a.env"
 rm -f "$a2a_env_tmp"
 

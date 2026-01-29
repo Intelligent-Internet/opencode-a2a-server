@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from .config import Settings
+
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -25,6 +31,8 @@ class OpencodeClient:
         self._agent = settings.opencode_agent
         self._system = settings.opencode_system
         self._variant = settings.opencode_variant
+        self._stream_timeout = settings.opencode_timeout_stream
+        self._log_payloads = settings.a2a_log_payloads
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=settings.opencode_timeout,
@@ -34,10 +42,50 @@ class OpencodeClient:
     async def close(self) -> None:
         await self._client.aclose()
 
+    @property
+    def stream_timeout(self) -> float | None:
+        return self._stream_timeout
+
     def _query_params(self) -> dict[str, str]:
         if not self._directory:
             return {}
         return {"directory": self._directory}
+
+    async def stream_events(
+        self, stop_event: asyncio.Event | None = None
+    ) -> AsyncIterator[dict[str, Any]]:
+        params = self._query_params()
+        async with self._client.stream(
+            "GET",
+            "/event",
+            params=params,
+            timeout=None,
+            headers={"Accept": "text/event-stream"},
+        ) as response:
+            response.raise_for_status()
+            data_lines: list[str] = []
+            async for line in response.aiter_lines():
+                if stop_event and stop_event.is_set():
+                    break
+                if line.startswith(":"):
+                    continue
+                if line == "":
+                    if not data_lines:
+                        continue
+                    payload = "\n".join(data_lines).strip()
+                    data_lines.clear()
+                    if not payload:
+                        continue
+                    try:
+                        event = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(event, dict):
+                        yield event
+                    continue
+                if line.startswith("data:"):
+                    data_lines.append(line[5:].lstrip())
+                    continue
 
     async def create_session(self, title: str | None = None) -> str:
         payload: dict[str, Any] = {}
@@ -51,7 +99,13 @@ class OpencodeClient:
             raise RuntimeError("OpenCode session response missing id")
         return session_id
 
-    async def send_message(self, session_id: str, text: str) -> OpencodeMessage:
+    async def send_message(
+        self,
+        session_id: str,
+        text: str,
+        *,
+        timeout_override: float | None | object = _UNSET,
+    ) -> OpencodeMessage:
         payload: dict[str, Any] = {
             "parts": [
                 {
@@ -72,13 +126,25 @@ class OpencodeClient:
         if self._variant:
             payload["variant"] = self._variant
 
+        if self._log_payloads:
+            logger = logging.getLogger(__name__)
+            logger.debug("OpenCode request payload=%s", payload)
+
+        request_kwargs: dict[str, Any] = {}
+        if timeout_override is not _UNSET:
+            request_kwargs["timeout"] = timeout_override
+
         response = await self._client.post(
             f"/session/{session_id}/message",
             params=self._query_params(),
             json=payload,
+            **request_kwargs,
         )
         response.raise_for_status()
         data = response.json()
+        if self._log_payloads:
+            logger = logging.getLogger(__name__)
+            logger.debug("OpenCode response payload=%s", data)
         parts = data.get("parts", [])
         text_content = _extract_text(parts)
         message_id = None

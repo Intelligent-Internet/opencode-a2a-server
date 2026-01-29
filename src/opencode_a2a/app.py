@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 import secrets
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import uvicorn
+from a2a.server.apps.jsonrpc.jsonrpc_app import DefaultCallContextBuilder
 from a2a.server.apps.rest.fastapi_app import A2ARESTFastAPIApplication
 from a2a.server.request_handlers.default_request_handler import DefaultRequestHandler
 from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
@@ -22,12 +24,35 @@ from a2a.types import (
 )
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.responses import StreamingResponse
 
 from .agent import OpencodeAgentExecutor
 from .config import Settings
 from .opencode_client import OpencodeClient
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from a2a.server.context import ServerCallContext
+
+
+class StreamingCallContextBuilder(DefaultCallContextBuilder):
+    def build(self, request: Request) -> ServerCallContext:
+        context = super().build(request)
+        path = request.url.path
+        raw_path = request.scope.get("raw_path")
+        raw_value = ""
+        if isinstance(raw_path, (bytes, bytearray)):
+            raw_value = raw_path.decode(errors="ignore")
+        is_stream = (
+            path.endswith("/v1/message:stream")
+            or path.endswith("/v1/message%3Astream")
+            or raw_value.endswith("/v1/message:stream")
+            or raw_value.endswith("/v1/message%3Astream")
+        )
+        if is_stream:
+            context.state["a2a_streaming_request"] = True
+        return context
 
 
 def build_agent_card(settings: Settings) -> AgentCard:
@@ -71,7 +96,7 @@ def build_agent_card(settings: Settings) -> AgentCard:
         preferred_transport=TransportProtocol.http_json,
         default_input_modes=["text/plain"],
         default_output_modes=["text/plain"],
-        capabilities=AgentCapabilities(streaming=False),
+        capabilities=AgentCapabilities(streaming=settings.a2a_streaming),
         skills=[
             AgentSkill(
                 id="opencode.chat",
@@ -119,7 +144,7 @@ def add_auth_middleware(app: FastAPI, settings: Settings) -> None:
 
 def create_app(settings: Settings) -> FastAPI:
     client = OpencodeClient(settings)
-    executor = OpencodeAgentExecutor(client)
+    executor = OpencodeAgentExecutor(client, streaming_enabled=settings.a2a_streaming)
     task_store = InMemoryTaskStore()
     handler = DefaultRequestHandler(
         agent_executor=executor,
@@ -134,7 +159,43 @@ def create_app(settings: Settings) -> FastAPI:
     app = A2ARESTFastAPIApplication(
         agent_card=build_agent_card(settings),
         http_handler=handler,
+        context_builder=StreamingCallContextBuilder(),
     ).build(title=settings.a2a_title, version=settings.a2a_version, lifespan=lifespan)
+
+    @app.middleware("http")
+    async def log_payloads(request: Request, call_next):
+        if not settings.a2a_log_payloads:
+            return await call_next(request)
+
+        body = await request.body()
+        request._body = body  # allow downstream to read again
+        body_text = body.decode("utf-8", errors="replace")
+        limit = settings.a2a_log_body_limit
+        if limit > 0 and len(body_text) > limit:
+            body_text = f"{body_text[:limit]}...[truncated]"
+        logger.debug(
+            "A2A request %s %s body=%s",
+            request.method,
+            request.url.path,
+            body_text,
+        )
+
+        response = await call_next(request)
+        if isinstance(response, StreamingResponse):
+            logger.debug("A2A response %s streaming", request.url.path)
+            return response
+
+        response_body = getattr(response, "body", b"") or b""
+        resp_text = response_body.decode("utf-8", errors="replace")
+        if limit > 0 and len(resp_text) > limit:
+            resp_text = f"{resp_text[:limit]}...[truncated]"
+        logger.debug(
+            "A2A response %s status=%s body=%s",
+            request.url.path,
+            response.status_code,
+            resp_text,
+        )
+        return response
 
     add_auth_middleware(app, settings)
 
@@ -145,8 +206,26 @@ settings = Settings.from_env()
 app = create_app(settings)
 
 
+def _normalize_log_level(value: str) -> str:
+    normalized = (value or "").strip().upper()
+    if normalized in {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}:
+        return normalized
+    return "INFO"
+
+
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    logging.getLogger("uvicorn.error").setLevel(level)
+    logging.getLogger("uvicorn.access").setLevel(level)
+
+
 def main() -> None:
-    uvicorn.run(app, host=settings.a2a_host, port=settings.a2a_port)
+    log_level = _normalize_log_level(settings.a2a_log_level)
+    _configure_logging(log_level)
+    uvicorn.run(app, host=settings.a2a_host, port=settings.a2a_port, log_level=log_level.lower())
 
 
 if __name__ == "__main__":
