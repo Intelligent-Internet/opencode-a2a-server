@@ -60,7 +60,7 @@
 ./scripts/deploy.sh project=alpha github_token=ghp_xxx a2a_bearer_token=a2a_xxx a2a_port=8010 a2a_host=127.0.0.1 opencode_provider_id=google opencode_model_id=gemini-3-flash-preview
 ```
 
-HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：  
+HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：
 
 ```bash
 ./scripts/deploy.sh project=alpha github_token=ghp_xxx a2a_bearer_token=a2a_xxx a2a_port=8010 a2a_host=127.0.0.1 a2a_public_url=https://a2a.example.com
