@@ -1,4 +1,5 @@
 import dataclasses
+import time
 import jwt
 import pytest
 from fastapi.testclient import TestClient
@@ -78,6 +79,16 @@ def jwt_settings():
     )
 
 
+def _jwt_payload(**overrides):
+    payload = {
+        "iss": "test-issuer",
+        "aud": "test-audience",
+        "exp": int(time.time()) + 3600,
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_bearer_auth_success(bearer_settings):
     app = create_app(bearer_settings)
     client = TestClient(app)
@@ -98,7 +109,7 @@ def test_jwt_auth_success(jwt_settings):
     app = create_app(jwt_settings)
     client = TestClient(app)
     token = jwt.encode(
-        {"iss": "test-issuer", "aud": "test-audience"}, "super-secret", algorithm="HS256"
+        _jwt_payload(), "super-secret", algorithm="HS256"
     )
     response = client.get("/v1/tasks", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code != 401
@@ -108,7 +119,7 @@ def test_jwt_auth_failure_invalid_secret(jwt_settings):
     app = create_app(jwt_settings)
     client = TestClient(app)
     token = jwt.encode(
-        {"iss": "test-issuer", "aud": "test-audience"}, "wrong-secret", algorithm="HS256"
+        _jwt_payload(), "wrong-secret", algorithm="HS256"
     )
     response = client.get("/v1/tasks", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 401
@@ -128,7 +139,7 @@ def test_jwt_auth_failure_missing_scope(jwt_settings):
     client = TestClient(app)
     # Token with wrong scope
     token = jwt.encode(
-        {"iss": "test-issuer", "aud": "test-audience", "scope": "other-scope"},
+        _jwt_payload(scope="other-scope"),
         "super-secret",
         algorithm="HS256",
     )
@@ -143,10 +154,54 @@ def test_jwt_auth_success_with_scope(jwt_settings):
     client = TestClient(app)
     # Token with correct scope
     token = jwt.encode(
-        {"iss": "test-issuer", "aud": "test-audience", "scope": "required-scope"},
+        _jwt_payload(scope="required-scope"),
         "super-secret",
         algorithm="HS256",
     )
     response = client.get("/v1/tasks", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code != 401
     assert response.status_code != 403
+
+
+def test_jwt_auth_failure_missing_exp(jwt_settings):
+    app = create_app(jwt_settings)
+    client = TestClient(app)
+    token = jwt.encode(
+        {"iss": "test-issuer", "aud": "test-audience"}, "super-secret", algorithm="HS256"
+    )
+    response = client.get("/v1/tasks", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 401
+
+
+def test_jwt_auth_success_with_scope_list(jwt_settings):
+    jwt_settings = dataclasses.replace(jwt_settings, a2a_oauth_scopes={"required-scope": ""})
+    app = create_app(jwt_settings)
+    client = TestClient(app)
+    token = jwt.encode(
+        _jwt_payload(scope=["required-scope", "other-scope"]),
+        "super-secret",
+        algorithm="HS256",
+    )
+    response = client.get("/v1/tasks", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code != 401
+    assert response.status_code != 403
+
+
+def test_jwt_auth_success_with_scp_claim(jwt_settings):
+    jwt_settings = dataclasses.replace(jwt_settings, a2a_oauth_scopes={"required-scope": ""})
+    app = create_app(jwt_settings)
+    client = TestClient(app)
+    token = jwt.encode(
+        _jwt_payload(scp=["required-scope"]),
+        "super-secret",
+        algorithm="HS256",
+    )
+    response = client.get("/v1/tasks", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code != 401
+    assert response.status_code != 403
+
+
+def test_invalid_auth_mode(bearer_settings):
+    settings = dataclasses.replace(bearer_settings, a2a_auth_mode="invalid")
+    with pytest.raises(RuntimeError):
+        create_app(settings)

@@ -114,6 +114,11 @@ if [[ -z "$PROJECT_NAME" || -z "$GH_TOKEN" ]]; then
   exit 1
 fi
 
+if [[ "$A2A_AUTH_MODE" != "bearer" && "$A2A_AUTH_MODE" != "jwt" ]]; then
+  echo "a2a_auth_mode must be bearer or jwt" >&2
+  exit 1
+fi
+
 if [[ "$A2A_AUTH_MODE" == "bearer" && -z "$A2A_BEARER_TOKEN" ]]; then
   echo "a2a_bearer_token is required when a2a_auth_mode is bearer" >&2
   exit 1

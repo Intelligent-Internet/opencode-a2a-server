@@ -22,6 +22,9 @@ elif [[ "$A2A_AUTH_MODE" == "jwt" ]]; then
     echo "A2A_JWT_SECRET is required when A2A_AUTH_MODE is jwt" >&2
     exit 1
   fi
+else
+  echo "A2A_AUTH_MODE must be bearer or jwt" >&2
+  exit 1
 fi
 
 exec "$A2A_BIN"

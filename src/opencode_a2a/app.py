@@ -33,6 +33,7 @@ from .config import Settings
 from .opencode_client import OpencodeClient
 
 logger = logging.getLogger(__name__)
+ALLOWED_AUTH_MODES = {"bearer", "jwt"}
 
 if TYPE_CHECKING:
     from a2a.server.context import ServerCallContext
@@ -132,6 +133,25 @@ def build_agent_card(settings: Settings) -> AgentCard:
 auth_scheme = HTTPBearer(auto_error=False)
 
 
+def _normalize_token_scopes(payload: dict[str, Any]) -> set[str]:
+    raw_scopes = payload.get("scope")
+    if raw_scopes is None:
+        raw_scopes = payload.get("scp")
+    if raw_scopes is None:
+        return set()
+    if isinstance(raw_scopes, str):
+        normalized = raw_scopes.replace(",", " ")
+        return {scope for scope in normalized.split() if scope}
+    if isinstance(raw_scopes, list):
+        token_scopes: set[str] = set()
+        for scope in raw_scopes:
+            normalized = str(scope).strip()
+            if normalized:
+                token_scopes.add(normalized)
+        return token_scopes
+    return set()
+
+
 async def get_auth_dependency(
     request: Request,
     auth: Annotated[HTTPAuthorizationCredentials | None, Security(auth_scheme)],
@@ -159,19 +179,26 @@ async def get_auth_dependency(
             )
         try:
             # Basic JWT validation
+            decode_options: dict[str, Any] = {"require": ["exp"]}
+            if not settings.a2a_jwt_audience:
+                decode_options["verify_aud"] = False
+            if not settings.a2a_jwt_issuer:
+                decode_options["verify_iss"] = False
             payload = jwt.decode(
                 token,
                 settings.a2a_jwt_secret,
                 algorithms=[settings.a2a_jwt_algorithm],
                 audience=settings.a2a_jwt_audience,
                 issuer=settings.a2a_jwt_issuer,
+                options=decode_options,
             )
             # You could add further checks here, e.g., verifying scopes
             if settings.a2a_oauth_scopes:
-                token_scopes = payload.get("scope", "").split()
-                if not any(scope in token_scopes for scope in settings.a2a_oauth_scopes):
+                required_scopes = set(settings.a2a_oauth_scopes.keys())
+                token_scopes = _normalize_token_scopes(payload)
+                if not required_scopes.intersection(token_scopes):
                     logger.warning(
-                        "Token missing required scopes: %s", settings.a2a_oauth_scopes.keys()
+                        "Token missing required scopes: %s", sorted(required_scopes)
                     )
                     raise HTTPException(
                         status_code=status.HTTP_403_FORBIDDEN,
@@ -185,7 +212,7 @@ async def get_auth_dependency(
                 detail=f"Invalid or expired token: {str(e)}",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-    else:
+    elif settings.a2a_auth_mode == "bearer":
         # Fallback to static bearer token
         expected_token = settings.a2a_bearer_token
         if not expected_token:
@@ -201,10 +228,19 @@ async def get_auth_dependency(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         return None
+    logger.error("Unsupported A2A_AUTH_MODE: %s", settings.a2a_auth_mode)
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Server authentication configuration error",
+    )
 
 
 def create_app(settings: Settings) -> FastAPI:
     # Validate auth configuration
+    if settings.a2a_auth_mode not in ALLOWED_AUTH_MODES:
+        raise RuntimeError(
+            f"A2A_AUTH_MODE must be one of {sorted(ALLOWED_AUTH_MODES)}"
+        )
     if settings.a2a_auth_mode == "jwt":
         if not settings.a2a_jwt_secret:
             raise RuntimeError("A2A_JWT_SECRET must be set when A2A_AUTH_MODE is 'jwt'")

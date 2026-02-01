@@ -42,7 +42,7 @@
 - 任务状态默认返回 `input-required`，便于继续多轮对话。
 - Streaming（`/v1/message:stream`）会输出 `TaskArtifactUpdateEvent` 增量（`append=true`），结束时发送 `TaskStatusUpdateEvent(final=true)`；完整内容由 artifact 承载，非 streaming 调用仍返回 `Task`。
 - 需在请求中携带 `Authorization: Bearer <token>`，否则返回 401（Agent Card 不受鉴权限制）。
-- 支持 JWT 无状态鉴权：当启用 JWT 模式时，会校验签名、过期时间（exp）及 Scopes。
+- 支持 JWT 无状态鉴权：当启用 JWT 模式时，会校验签名、过期时间（exp，必填）及 Scopes（scope/scp，字符串或数组）。
 - OAuth2 相关配置（Authorization/Token URL）目前主要用于 Agent Card 声明。
 
 ## 鉴权示例（curl）
@@ -62,11 +62,11 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
 
 ## 鉴权示例（JWT 模式）
 
-若启用 `A2A_AUTH_MODE=jwt`，Token 需为合法的 JWT。若设置了 `A2A_OAUTH_SCOPES`，Token 的 `scope` 声明中必须包含其中之一。
+若启用 `A2A_AUTH_MODE=jwt`，Token 需为合法的 JWT 且必须包含 `exp`。若设置了 `A2A_OAUTH_SCOPES`，Token 的 `scope` 或 `scp` 声明中必须包含其中之一（支持字符串或数组）。
 
 ```bash
 # 生成 Token 示例（Python）
-# python -c "import jwt; print(jwt.encode({'iss': 'my-issuer', 'scope': 'opencode'}, 'my-secret', algorithm='HS256'))"
+# python -c "import jwt, time; print(jwt.encode({'iss': 'my-issuer', 'exp': int(time.time()) + 3600, 'scope': 'opencode'}, 'my-secret', algorithm='HS256'))"
 
 curl -sS http://127.0.0.1:8000/v1/message:send \
   -H 'Authorization: Bearer <your-jwt-token>' \
