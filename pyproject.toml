@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2.6",
     "sse-starlette>=2.1",
     "uvicorn>=0.29",
+    "PyJWT[crypto]>=2.8.0",
 ]
 
 [project.optional-dependencies]

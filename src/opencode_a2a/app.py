@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Any
 
+import jwt
 import uvicorn
 from a2a.server.apps.jsonrpc.jsonrpc_app import DefaultCallContextBuilder
 from a2a.server.apps.rest.fastapi_app import A2ARESTFastAPIApplication
@@ -22,8 +23,9 @@ from a2a.types import (
     SecurityScheme,
     TransportProtocol,
 )
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Security, status
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.responses import StreamingResponse
 
 from .agent import OpencodeAgentExecutor
@@ -58,16 +60,28 @@ class StreamingCallContextBuilder(DefaultCallContextBuilder):
 def build_agent_card(settings: Settings) -> AgentCard:
     public_url = settings.a2a_public_url.rstrip("/")
     base_url = public_url
-    security_schemes: dict[str, SecurityScheme] = {
-        "bearerAuth": SecurityScheme(
+
+    # Define security scheme based on auth mode
+    security_schemes: dict[str, SecurityScheme] = {}
+    security: list[dict[str, list[str]]] = []
+
+    if settings.a2a_auth_mode == "jwt":
+        security_schemes["bearerAuth"] = SecurityScheme(
             root=HTTPAuthSecurityScheme(
-                description="Bearer token authentication",
+                description="JWT Bearer token authentication",
+                scheme="bearer",
+                bearer_format="JWT",
+            )
+        )
+    else:
+        security_schemes["bearerAuth"] = SecurityScheme(
+            root=HTTPAuthSecurityScheme(
+                description="Opaque Bearer token authentication",
                 scheme="bearer",
                 bearer_format="opaque",
             )
         )
-    }
-    security: list[dict[str, list[str]]] = [{"bearerAuth": []}]
+    security.append({"bearerAuth": []})
 
     if settings.a2a_oauth_authorization_url and settings.a2a_oauth_token_url:
         security_schemes = security_schemes or {}
@@ -115,34 +129,79 @@ def build_agent_card(settings: Settings) -> AgentCard:
     )
 
 
-def add_auth_middleware(app: FastAPI, settings: Settings) -> None:
-    token = settings.a2a_bearer_token
-    if not token:
-        raise RuntimeError("A2A_BEARER_TOKEN must be set to start the server.")
+auth_scheme = HTTPBearer(auto_error=False)
 
-    @app.middleware("http")
-    async def bearer_auth(request: Request, call_next):
-        if request.method == "OPTIONS" or request.url.path == "/.well-known/agent-card.json":
-            return await call_next(request)
 
-        auth_header = request.headers.get("authorization", "")
-        if not auth_header.lower().startswith("bearer "):
-            return JSONResponse(
-                {"error": "Unauthorized"},
-                status_code=401,
+async def get_auth_dependency(
+    request: Request,
+    auth: Annotated[HTTPAuthorizationCredentials | None, Security(auth_scheme)],
+) -> Any:
+    settings: Settings = request.app.state.settings
+    # Public routes
+    if request.url.path == "/.well-known/agent-card.json" or request.method == "OPTIONS":
+        return None
+
+    if not auth:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = auth.credentials
+
+    if settings.a2a_auth_mode == "jwt":
+        if not settings.a2a_jwt_secret:
+            logger.error("A2A_JWT_SECRET is not set but A2A_AUTH_MODE is 'jwt'")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Server authentication configuration error",
+            )
+        try:
+            # Basic JWT validation
+            payload = jwt.decode(
+                token,
+                settings.a2a_jwt_secret,
+                algorithms=[settings.a2a_jwt_algorithm],
+                audience=settings.a2a_jwt_audience,
+                issuer=settings.a2a_jwt_issuer,
+            )
+            # You could add further checks here, e.g., verifying scopes
+            return payload
+        except jwt.PyJWTError as e:
+            logger.warning("Invalid JWT token: %s", str(e))
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid or expired token: {str(e)}",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        provided = auth_header.split(" ", 1)[1].strip()
-        if not secrets.compare_digest(provided, token):
-            return JSONResponse(
-                {"error": "Unauthorized"},
-                status_code=401,
+    else:
+        # Fallback to static bearer token
+        expected_token = settings.a2a_bearer_token
+        if not expected_token:
+            logger.error("A2A_BEARER_TOKEN is not set but A2A_AUTH_MODE is 'bearer'")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Server authentication configuration error",
+            )
+        if not secrets.compare_digest(token, expected_token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        return await call_next(request)
+        return None
 
 
 def create_app(settings: Settings) -> FastAPI:
+    # Validate auth configuration
+    if settings.a2a_auth_mode == "jwt":
+        if not settings.a2a_jwt_secret:
+            raise RuntimeError("A2A_JWT_SECRET must be set when A2A_AUTH_MODE is 'jwt'")
+    elif settings.a2a_auth_mode == "bearer":
+        if not settings.a2a_bearer_token:
+            raise RuntimeError("A2A_BEARER_TOKEN must be set when A2A_AUTH_MODE is 'bearer'")
+
     client = OpencodeClient(settings)
     executor = OpencodeAgentExecutor(client, streaming_enabled=settings.a2a_streaming)
     task_store = InMemoryTaskStore()
@@ -160,7 +219,13 @@ def create_app(settings: Settings) -> FastAPI:
         agent_card=build_agent_card(settings),
         http_handler=handler,
         context_builder=StreamingCallContextBuilder(),
-    ).build(title=settings.a2a_title, version=settings.a2a_version, lifespan=lifespan)
+    ).build(
+        title=settings.a2a_title,
+        version=settings.a2a_version,
+        lifespan=lifespan,
+        dependencies=[Depends(get_auth_dependency)],
+    )
+    app.state.settings = settings
 
     @app.middleware("http")
     async def log_payloads(request: Request, call_next):
@@ -197,13 +262,17 @@ def create_app(settings: Settings) -> FastAPI:
         )
         return response
 
-    add_auth_middleware(app, settings)
-
     return app
 
 
-settings = Settings.from_env()
-app = create_app(settings)
+try:
+    settings = Settings.from_env()
+    app = create_app(settings)
+except Exception as e:
+    # This allows importing the module without failing if env vars are missing
+    # but the 'app' will not be available.
+    logger.warning("Could not create default app: %s", e)
+    app = None  # type: ignore
 
 
 def _normalize_log_level(value: str) -> str:

@@ -87,6 +87,11 @@ class Settings:
     a2a_host: str
     a2a_port: int
     a2a_bearer_token: str | None
+    a2a_auth_mode: str
+    a2a_jwt_secret: str | None
+    a2a_jwt_algorithm: str
+    a2a_jwt_issuer: str | None
+    a2a_jwt_audience: str | None
     a2a_oauth_authorization_url: str | None
     a2a_oauth_token_url: str | None
     a2a_oauth_metadata_url: str | None
@@ -95,7 +100,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
-            opencode_base_url=_get_env("OPENCODE_BASE_URL", "http://127.0.0.1:4096"),
+            opencode_base_url=str(_get_env("OPENCODE_BASE_URL", "http://127.0.0.1:4096")),
             opencode_directory=_get_env("OPENCODE_DIRECTORY"),
             opencode_provider_id=_get_env("OPENCODE_PROVIDER_ID"),
             opencode_model_id=_get_env("OPENCODE_MODEL_ID"),
@@ -104,18 +109,23 @@ class Settings:
             opencode_variant=_get_env("OPENCODE_VARIANT"),
             opencode_timeout=_get_float("OPENCODE_TIMEOUT", 120.0),
             opencode_timeout_stream=_get_optional_float("OPENCODE_TIMEOUT_STREAM"),
-            a2a_public_url=_get_env("A2A_PUBLIC_URL", "http://127.0.0.1:8000"),
-            a2a_title=_get_env("A2A_TITLE", "OpenCode A2A"),
-            a2a_description=_get_env("A2A_DESCRIPTION", "A2A wrapper service for OpenCode"),
-            a2a_version=_get_env("A2A_VERSION", "0.1.0"),
-            a2a_protocol_version=_get_env("A2A_PROTOCOL_VERSION", "0.3.0"),
+            a2a_public_url=str(_get_env("A2A_PUBLIC_URL", "http://127.0.0.1:8000")),
+            a2a_title=str(_get_env("A2A_TITLE", "OpenCode A2A")),
+            a2a_description=str(_get_env("A2A_DESCRIPTION", "A2A wrapper service for OpenCode")),
+            a2a_version=str(_get_env("A2A_VERSION", "0.1.0")),
+            a2a_protocol_version=str(_get_env("A2A_PROTOCOL_VERSION", "0.3.0")),
             a2a_streaming=_get_bool("A2A_STREAMING", True),
-            a2a_log_level=_get_env("A2A_LOG_LEVEL", "INFO"),
+            a2a_log_level=str(_get_env("A2A_LOG_LEVEL", "INFO")),
             a2a_log_payloads=_get_bool("A2A_LOG_PAYLOADS", False),
             a2a_log_body_limit=_get_int("A2A_LOG_BODY_LIMIT", 0),
-            a2a_host=_get_env("A2A_HOST", "127.0.0.1"),
+            a2a_host=str(_get_env("A2A_HOST", "127.0.0.1")),
             a2a_port=_get_int("A2A_PORT", 8000),
             a2a_bearer_token=_get_env("A2A_BEARER_TOKEN"),
+            a2a_auth_mode=str(_get_env("A2A_AUTH_MODE", "bearer")),
+            a2a_jwt_secret=_get_env("A2A_JWT_SECRET"),
+            a2a_jwt_algorithm=str(_get_env("A2A_JWT_ALGORITHM", "HS256")),
+            a2a_jwt_issuer=_get_env("A2A_JWT_ISSUER"),
+            a2a_jwt_audience=_get_env("A2A_JWT_AUDIENCE"),
             a2a_oauth_authorization_url=_get_env("A2A_OAUTH_AUTHORIZATION_URL"),
             a2a_oauth_token_url=_get_env("A2A_OAUTH_TOKEN_URL"),
             a2a_oauth_metadata_url=_get_env("A2A_OAUTH_METADATA_URL"),
