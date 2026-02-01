@@ -21,7 +21,12 @@
 - `A2A_PROTOCOL_VERSION`：A2A 协议版本，默认 `0.3.0`
 - `A2A_HOST`：监听地址，默认 `127.0.0.1`
 - `A2A_PORT`：监听端口，默认 `8000`
-- `A2A_BEARER_TOKEN`：必填；用于 Bearer Token 校验，未设置则服务拒绝启动
+- `A2A_AUTH_MODE`：鉴权模式，可选 `bearer` 或 `jwt`，默认 `bearer`
+- `A2A_BEARER_TOKEN`：当 `A2A_AUTH_MODE=bearer` 时必填；用于静态 Bearer Token 校验
+- `A2A_JWT_SECRET`：当 `A2A_AUTH_MODE=jwt` 时必填；JWT 签名密钥
+- `A2A_JWT_ALGORITHM`：JWT 签名算法，默认 `HS256`
+- `A2A_JWT_ISSUER`：JWT 签发者校验（可选）
+- `A2A_JWT_AUDIENCE`：JWT 受众校验（可选）
 - `A2A_STREAMING`：是否启用 SSE streaming（`/v1/message:stream`），默认 `true`
 - `A2A_LOG_LEVEL`：A2A 服务日志级别（`DEBUG/INFO/WARNING/ERROR`），默认 `INFO`
 - `A2A_LOG_PAYLOADS`：是否记录 A2A 与 OpenCode 的请求/响应正文，默认 `false`
@@ -37,7 +42,8 @@
 - 任务状态默认返回 `input-required`，便于继续多轮对话。
 - Streaming（`/v1/message:stream`）会输出 `TaskArtifactUpdateEvent` 增量（`append=true`），结束时发送 `TaskStatusUpdateEvent(final=true)`；完整内容由 artifact 承载，非 streaming 调用仍返回 `Task`。
 - 需在请求中携带 `Authorization: Bearer <token>`，否则返回 401（Agent Card 不受鉴权限制）。
-- OAuth2 相关配置目前仅用于 Agent Card 声明，鉴权校验需后续接入。
+- 支持 JWT 无状态鉴权：当启用 JWT 模式时，会校验签名、过期时间（exp）及 Scopes。
+- OAuth2 相关配置（Authorization/Token URL）目前主要用于 Agent Card 声明。
 
 ## 鉴权示例（curl）
 
@@ -52,6 +58,19 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
       "parts": [{"kind": "text", "text": "你好，介绍下这个仓库"}]
     }
   }'
+```
+
+## 鉴权示例（JWT 模式）
+
+若启用 `A2A_AUTH_MODE=jwt`，Token 需为合法的 JWT。若设置了 `A2A_OAUTH_SCOPES`，Token 的 `scope` 声明中必须包含其中之一。
+
+```bash
+# 生成 Token 示例（Python）
+# python -c "import jwt; print(jwt.encode({'iss': 'my-issuer', 'scope': 'opencode'}, 'my-secret', algorithm='HS256'))"
+
+curl -sS http://127.0.0.1:8000/v1/message:send \
+  -H 'Authorization: Bearer <your-jwt-token>' \
+  ...
 ```
 
 ## Streaming 断线续订（resubscribe）
