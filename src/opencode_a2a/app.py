@@ -167,6 +167,16 @@ async def get_auth_dependency(
                 issuer=settings.a2a_jwt_issuer,
             )
             # You could add further checks here, e.g., verifying scopes
+            if settings.a2a_oauth_scopes:
+                token_scopes = payload.get("scope", "").split()
+                if not any(scope in token_scopes for scope in settings.a2a_oauth_scopes):
+                    logger.warning(
+                        "Token missing required scopes: %s", settings.a2a_oauth_scopes.keys()
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Token missing required scopes",
+                    )
             return payload
         except jwt.PyJWTError as e:
             logger.warning("Invalid JWT token: %s", str(e))

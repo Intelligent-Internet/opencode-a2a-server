@@ -1,3 +1,4 @@
+import dataclasses
 import jwt
 import pytest
 from fastapi.testclient import TestClient
@@ -118,3 +119,34 @@ def test_public_route_no_auth(bearer_settings):
     client = TestClient(app)
     response = client.get("/.well-known/agent-card.json")
     assert response.status_code == 200
+
+
+def test_jwt_auth_failure_missing_scope(jwt_settings):
+    # Setup settings with required scopes
+    jwt_settings = dataclasses.replace(jwt_settings, a2a_oauth_scopes={"required-scope": ""})
+    app = create_app(jwt_settings)
+    client = TestClient(app)
+    # Token with wrong scope
+    token = jwt.encode(
+        {"iss": "test-issuer", "aud": "test-audience", "scope": "other-scope"},
+        "super-secret",
+        algorithm="HS256",
+    )
+    response = client.get("/v1/tasks", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+
+
+def test_jwt_auth_success_with_scope(jwt_settings):
+    # Setup settings with required scopes
+    jwt_settings = dataclasses.replace(jwt_settings, a2a_oauth_scopes={"required-scope": ""})
+    app = create_app(jwt_settings)
+    client = TestClient(app)
+    # Token with correct scope
+    token = jwt.encode(
+        {"iss": "test-issuer", "aud": "test-audience", "scope": "required-scope"},
+        "super-secret",
+        algorithm="HS256",
+    )
+    response = client.get("/v1/tasks", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code != 401
+    assert response.status_code != 403
