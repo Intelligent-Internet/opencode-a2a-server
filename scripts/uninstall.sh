@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 # Uninstall a single OpenCode + A2A instance created by scripts/deploy.sh.
-# Safety defaults:
-# - dry_run=true by default (prints actions)
-# - requires confirm=UNINSTALL to actually delete files/users
 #
-# IMPORTANT: This script never removes systemd template units
-# (/etc/systemd/system/opencode@.service, opencode-a2a@.service) because they
-# are shared globally across all instances.
+# Safety model (enforced):
+# - This script always prints the uninstall actions (preview first).
+# - There is NO dry_run=false option.
+# - To actually apply destructive actions you must pass confirm=UNINSTALL.
+#
+# IMPORTANT: This script (and the apply step) never removes systemd template units
+# (/etc/systemd/system/opencode@.service, opencode-a2a@.service) because they are
+# shared globally across all instances.
 #
 # Usage:
-#   ./scripts/uninstall.sh project=<name> [data_root=/data/projects] [dry_run=true|false] confirm=UNINSTALL
+#   ./scripts/uninstall.sh project=<name> [data_root=/data/projects] [confirm=UNINSTALL]
 #
 # Examples:
+#   ./scripts/uninstall.sh project=alpha
 #   ./scripts/uninstall.sh project=alpha confirm=UNINSTALL
-#   ./scripts/uninstall.sh project=alpha dry_run=false confirm=UNINSTALL
 set -euo pipefail
 
 PROJECT_NAME=""
 DATA_ROOT_INPUT=""
-DRY_RUN_INPUT="true"
 CONFIRM_INPUT=""
 
 for arg in "$@"; do
@@ -37,9 +38,6 @@ for arg in "$@"; do
     data_root)
       DATA_ROOT_INPUT="$value"
       ;;
-    dry_run)
-      DRY_RUN_INPUT="$value"
-      ;;
     confirm)
       CONFIRM_INPUT="$value"
       ;;
@@ -51,72 +49,61 @@ for arg in "$@"; do
 done
 
 if [[ -z "$PROJECT_NAME" ]]; then
-  echo "Usage: $0 project=<name> [data_root=/data/projects] [dry_run=true|false] confirm=UNINSTALL" >&2
+  echo "Usage: $0 project=<name> [data_root=/data/projects] [confirm=UNINSTALL]" >&2
   exit 1
 fi
 
 DATA_ROOT="${DATA_ROOT_INPUT:-${DATA_ROOT:-/data/projects}}"
 PROJECT_DIR="${DATA_ROOT}/${PROJECT_NAME}"
+UNIT_OPENCODE="opencode@${PROJECT_NAME}.service"
+UNIT_A2A="opencode-a2a@${PROJECT_NAME}.service"
 
-is_truthy() {
-  case "${1,,}" in
-    1|true|yes|on) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-DRY_RUN="true"
-if [[ -n "$DRY_RUN_INPUT" ]] && ! is_truthy "$DRY_RUN_INPUT"; then
-  DRY_RUN="false"
-fi
-
-if [[ "$DRY_RUN" != "true" ]]; then
-  if [[ "${CONFIRM_INPUT}" != "UNINSTALL" ]]; then
-    echo "Refusing to run destructive actions without confirm=UNINSTALL." >&2
-    echo "Tip: run with dry_run=true first (default) to preview." >&2
-    exit 1
-  fi
+APPLY="false"
+if [[ "$CONFIRM_INPUT" == "UNINSTALL" ]]; then
+  APPLY="true"
 fi
 
 run() {
-  # Print commands for auditability.
   echo "+ $*"
-  if [[ "$DRY_RUN" == "true" ]]; then
-    return 0
+  if [[ "$APPLY" == "true" ]]; then
+    "$@"
   fi
-  "$@"
+}
+
+run_ignore() {
+  echo "+ $*"
+  if [[ "$APPLY" == "true" ]]; then
+    "$@" || true
+  fi
 }
 
 echo "Project: ${PROJECT_NAME}"
 echo "DATA_ROOT: ${DATA_ROOT}"
 echo "Project dir: ${PROJECT_DIR}"
-echo "Dry run: ${DRY_RUN}"
 echo "Note: systemd template units will NOT be removed."
+echo "Mode: $([[ "$APPLY" == "true" ]] && echo apply || echo preview)"
 
-UNIT_OPENCODE="opencode@${PROJECT_NAME}.service"
-UNIT_A2A="opencode-a2a@${PROJECT_NAME}.service"
-
+# Stop/disable instance units (idempotent).
 if command -v systemctl >/dev/null 2>&1; then
-  # Stop/disable instance units (idempotent).
-  run sudo systemctl disable --now "$UNIT_A2A" "$UNIT_OPENCODE" || true
-  run sudo systemctl reset-failed "$UNIT_A2A" "$UNIT_OPENCODE" || true
+  run_ignore sudo systemctl disable --now "${UNIT_A2A}" "${UNIT_OPENCODE}"
+  run_ignore sudo systemctl reset-failed "${UNIT_A2A}" "${UNIT_OPENCODE}"
 else
   echo "systemctl not found; skipping systemd unit disable/stop." >&2
 fi
 
 # Remove project directory.
-if [[ -e "$PROJECT_DIR" ]]; then
-  run sudo rm -rf --one-file-system "$PROJECT_DIR"
+if [[ -e "${PROJECT_DIR}" ]]; then
+  run sudo rm -rf --one-file-system "${PROJECT_DIR}"
 else
   echo "Project dir not found; skipping: ${PROJECT_DIR}"
 fi
 
 # Remove project user and group.
-if id "$PROJECT_NAME" &>/dev/null; then
+if id "${PROJECT_NAME}" &>/dev/null; then
   if command -v userdel >/dev/null 2>&1; then
-    run sudo userdel "$PROJECT_NAME" || true
+    run_ignore sudo userdel "${PROJECT_NAME}"
   elif command -v deluser >/dev/null 2>&1; then
-    run sudo deluser "$PROJECT_NAME" || true
+    run_ignore sudo deluser "${PROJECT_NAME}"
   else
     echo "Neither userdel nor deluser found; cannot remove user ${PROJECT_NAME} automatically." >&2
   fi
@@ -124,11 +111,11 @@ else
   echo "User not found; skipping: ${PROJECT_NAME}"
 fi
 
-if getent group "$PROJECT_NAME" >/dev/null 2>&1; then
+if getent group "${PROJECT_NAME}" >/dev/null 2>&1; then
   if command -v groupdel >/dev/null 2>&1; then
-    run sudo groupdel "$PROJECT_NAME" || true
+    run_ignore sudo groupdel "${PROJECT_NAME}"
   elif command -v delgroup >/dev/null 2>&1; then
-    run sudo delgroup "$PROJECT_NAME" || true
+    run_ignore sudo delgroup "${PROJECT_NAME}"
   else
     echo "Neither groupdel nor delgroup found; cannot remove group ${PROJECT_NAME} automatically." >&2
   fi
@@ -137,4 +124,7 @@ else
 fi
 
 echo "Uninstall completed."
-
+if [[ "$APPLY" != "true" ]]; then
+  echo
+  echo "Preview only. To apply, re-run with: confirm=UNINSTALL"
+fi

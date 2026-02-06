@@ -175,13 +175,13 @@ sudo systemctl status opencode-a2a@<project>.service
 如需回收某个 `project` 的部署资源（停止并禁用实例服务、删除项目目录与项目用户/组），可使用：
 
 ```bash
-./scripts/uninstall.sh project=<project> confirm=UNINSTALL
+./scripts/uninstall.sh project=<project>
 ```
 
-脚本默认 `dry_run=true` 仅打印将执行的命令；如需真正执行删除：
+脚本默认仅打印将执行的命令（preview）；如需真正执行删除，需在 preview 基础上显式确认：
 
 ```bash
-./scripts/uninstall.sh project=<project> dry_run=false confirm=UNINSTALL
+./scripts/uninstall.sh project=<project> confirm=UNINSTALL
 ```
 
 注意：
