@@ -96,6 +96,24 @@ contains_dot_segment() {
   [[ "$p" =~ (^|/)\.\.(/|$) || "$p" =~ (^|/)\.(/|$) ]]
 }
 
+find_exe() {
+  # Find an executable without relying on the caller's PATH (which may omit /usr/sbin).
+  local name="$1"
+  local p=""
+  p="$(command -v "$name" 2>/dev/null || true)"
+  if [[ -n "$p" && -x "$p" ]]; then
+    echo "$p"
+    return 0
+  fi
+  for dir in /usr/sbin /sbin /usr/bin /bin /usr/local/sbin /usr/local/bin; do
+    if [[ -x "${dir}/${name}" ]]; then
+      echo "${dir}/${name}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 DATA_ROOT_RAW="$DATA_ROOT"
 DATA_ROOT_EFFECTIVE="$DATA_ROOT"
 PROJECT_DIR_EFFECTIVE=""
@@ -220,14 +238,16 @@ if id "${PROJECT_NAME}" &>/dev/null; then
     warn "User ${PROJECT_NAME} home mismatch (expected ${PROJECT_DIR}, got ${user_home}); refusing to delete user automatically."
     HAD_NONFATAL_FAILURE="true"
   else
-  if command -v userdel >/dev/null 2>&1; then
-    run_ignore sudo userdel "${PROJECT_NAME}"
-  elif command -v deluser >/dev/null 2>&1; then
-    run_ignore sudo deluser "${PROJECT_NAME}"
-  else
-    echo "Neither userdel nor deluser found; cannot remove user ${PROJECT_NAME} automatically." >&2
-    HAD_NONFATAL_FAILURE="true"
-  fi
+    userdel_bin="$(find_exe userdel || true)"
+    deluser_bin="$(find_exe deluser || true)"
+    if [[ -n "$userdel_bin" ]]; then
+      run_ignore sudo "$userdel_bin" "${PROJECT_NAME}"
+    elif [[ -n "$deluser_bin" ]]; then
+      run_ignore sudo "$deluser_bin" "${PROJECT_NAME}"
+    else
+      echo "Neither userdel nor deluser found; cannot remove user ${PROJECT_NAME} automatically." >&2
+      HAD_NONFATAL_FAILURE="true"
+    fi
   fi
 
   # Determine whether the user is gone before attempting to delete the group.
@@ -253,12 +273,19 @@ if getent group "${PROJECT_NAME}" >/dev/null 2>&1; then
         warn "Refusing to delete group ${PROJECT_NAME} automatically because it still has members: ${members}"
         HAD_NONFATAL_FAILURE="true"
         # Still print the command for auditability, but do not run it.
-        echo "+ sudo groupdel ${PROJECT_NAME}"
+        groupdel_bin="$(find_exe groupdel || true)"
+        if [[ -n "$groupdel_bin" ]]; then
+          echo "+ sudo ${groupdel_bin} ${PROJECT_NAME}"
+        else
+          echo "+ sudo groupdel ${PROJECT_NAME}"
+        fi
       else
-        if command -v groupdel >/dev/null 2>&1; then
-          run_ignore sudo groupdel "${PROJECT_NAME}"
-        elif command -v delgroup >/dev/null 2>&1; then
-          run_ignore sudo delgroup "${PROJECT_NAME}"
+        groupdel_bin="$(find_exe groupdel || true)"
+        delgroup_bin="$(find_exe delgroup || true)"
+        if [[ -n "$groupdel_bin" ]]; then
+          run_ignore sudo "$groupdel_bin" "${PROJECT_NAME}"
+        elif [[ -n "$delgroup_bin" ]]; then
+          run_ignore sudo "$delgroup_bin" "${PROJECT_NAME}"
         else
           echo "Neither groupdel nor delgroup found; cannot remove group ${PROJECT_NAME} automatically." >&2
           HAD_NONFATAL_FAILURE="true"
@@ -266,10 +293,12 @@ if getent group "${PROJECT_NAME}" >/dev/null 2>&1; then
       fi
     else
       # Preview mode: print what would be attempted in apply mode.
-      if command -v groupdel >/dev/null 2>&1; then
-        run_ignore sudo groupdel "${PROJECT_NAME}"
-      elif command -v delgroup >/dev/null 2>&1; then
-        run_ignore sudo delgroup "${PROJECT_NAME}"
+      groupdel_bin="$(find_exe groupdel || true)"
+      delgroup_bin="$(find_exe delgroup || true)"
+      if [[ -n "$groupdel_bin" ]]; then
+        run_ignore sudo "$groupdel_bin" "${PROJECT_NAME}"
+      elif [[ -n "$delgroup_bin" ]]; then
+        run_ignore sudo "$delgroup_bin" "${PROJECT_NAME}"
       else
         echo "Neither groupdel nor delgroup found; cannot remove group ${PROJECT_NAME} automatically." >&2
       fi
