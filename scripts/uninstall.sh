@@ -114,6 +114,47 @@ find_exe() {
   return 1
 }
 
+print_missing_account_tool_hints() {
+  # Print operator-friendly guidance when user/group management tools are missing.
+  # Args: user|group
+  local kind="${1:-}"
+  local os_id=""
+  local os_like=""
+
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os_id="${ID:-}"
+    os_like="${ID_LIKE:-}"
+  fi
+
+  echo "Fallback hints:" >&2
+  echo "  - PATH for non-root users may omit /usr/sbin and /sbin." >&2
+  echo "    Try: export PATH=\"\$PATH:/usr/sbin:/sbin\" && command -v userdel groupdel" >&2
+
+  if [[ "$kind" == "user" ]]; then
+    echo "  - If user deletion tools are missing (userdel/deluser):" >&2
+    if [[ "$os_id" == "debian" || "$os_id" == "ubuntu" || "$os_like" == *debian* ]]; then
+      echo "    - Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y passwd" >&2
+    elif [[ "$os_id" == "rhel" || "$os_id" == "fedora" || "$os_like" == *rhel* || "$os_like" == *fedora* ]]; then
+      echo "    - RHEL/Fedora: sudo dnf install -y shadow-utils  (or: sudo yum install -y shadow-utils)" >&2
+    else
+      echo "    - Install the package providing userdel/deluser (distro-specific)." >&2
+    fi
+    echo "  - Then delete manually: sudo userdel \"${PROJECT_NAME}\"" >&2
+  elif [[ "$kind" == "group" ]]; then
+    echo "  - If group deletion tools are missing (groupdel/delgroup):" >&2
+    if [[ "$os_id" == "debian" || "$os_id" == "ubuntu" || "$os_like" == *debian* ]]; then
+      echo "    - Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y passwd" >&2
+    elif [[ "$os_id" == "rhel" || "$os_id" == "fedora" || "$os_like" == *rhel* || "$os_like" == *fedora* ]]; then
+      echo "    - RHEL/Fedora: sudo dnf install -y shadow-utils  (or: sudo yum install -y shadow-utils)" >&2
+    else
+      echo "    - Install the package providing groupdel/delgroup (distro-specific)." >&2
+    fi
+    echo "  - Then delete manually: sudo groupdel \"${PROJECT_NAME}\"" >&2
+  fi
+}
+
 DATA_ROOT_RAW="$DATA_ROOT"
 DATA_ROOT_EFFECTIVE="$DATA_ROOT"
 PROJECT_DIR_EFFECTIVE=""
@@ -247,6 +288,7 @@ if id "${PROJECT_NAME}" &>/dev/null; then
     else
       echo "Neither userdel nor deluser found; cannot remove user ${PROJECT_NAME} automatically." >&2
       HAD_NONFATAL_FAILURE="true"
+      print_missing_account_tool_hints user
     fi
   fi
 
@@ -289,6 +331,7 @@ if getent group "${PROJECT_NAME}" >/dev/null 2>&1; then
         else
           echo "Neither groupdel nor delgroup found; cannot remove group ${PROJECT_NAME} automatically." >&2
           HAD_NONFATAL_FAILURE="true"
+          print_missing_account_tool_hints group
         fi
       fi
     else
@@ -301,6 +344,7 @@ if getent group "${PROJECT_NAME}" >/dev/null 2>&1; then
         run_ignore sudo "$delgroup_bin" "${PROJECT_NAME}"
       else
         echo "Neither groupdel nor delgroup found; cannot remove group ${PROJECT_NAME} automatically." >&2
+        print_missing_account_tool_hints group
       fi
     fi
   fi
