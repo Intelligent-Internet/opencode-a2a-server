@@ -98,7 +98,15 @@ a2a_env_tmp="$(mktemp)"
   echo "A2A_HOST=${A2A_HOST}"
   echo "A2A_PORT=${A2A_PORT}"
   echo "A2A_PUBLIC_URL=${A2A_PUBLIC_URL}"
-  echo "A2A_JWT_SECRET=${A2A_JWT_SECRET}"
+  if [[ -n "${A2A_JWT_SECRET_B64:-}" ]]; then
+    echo "A2A_JWT_SECRET_B64=${A2A_JWT_SECRET_B64}"
+  fi
+  if [[ -n "${A2A_JWT_SECRET_FILE:-}" ]]; then
+    echo "A2A_JWT_SECRET_FILE=${A2A_JWT_SECRET_FILE}"
+  fi
+  if [[ -n "${A2A_JWT_SECRET:-}" ]]; then
+    echo "A2A_JWT_SECRET=${A2A_JWT_SECRET}"
+  fi
   echo "A2A_JWT_ALGORITHM=${A2A_JWT_ALGORITHM:-RS256}"
   echo "A2A_JWT_ISSUER=${A2A_JWT_ISSUER}"
   echo "A2A_JWT_AUDIENCE=${A2A_JWT_AUDIENCE}"

@@ -22,6 +22,8 @@
 - `A2A_HOST`：监听地址，默认 `127.0.0.1`
 - `A2A_PORT`：监听端口，默认 `8000`
 - `A2A_JWT_SECRET`：JWT 验签 key（建议使用非对称算法的 **public key PEM**）
+- `A2A_JWT_SECRET_B64`：base64 编码的 JWT 验签 key（推荐用于 systemd `EnvironmentFile`，避免 PEM 多行换行问题）
+- `A2A_JWT_SECRET_FILE`：JWT 验签 key 文件路径（本地调试方便；注意服务进程需要有读取权限）
 - `A2A_JWT_ALGORITHM`：JWT 签名算法（**仅支持非对称算法**），默认 `RS256`
 - `A2A_JWT_ISSUER`：JWT 签发者校验（必填）
 - `A2A_JWT_AUDIENCE`：JWT 受众校验（必填）
@@ -67,6 +69,57 @@ Token 需为合法的 JWT 且必须包含 `exp`。服务端必须配置 `A2A_JWT
 curl -sS http://127.0.0.1:8000/v1/message:send \
   -H 'Authorization: Bearer <your-jwt-token>' \
   ...
+```
+
+## 本地调试：生成 RS256 JWT（最小示例）
+
+该服务不负责签发 JWT；生产环境建议由认证服务（例如 Compass）签发。
+
+本段仅用于本地调试快速生成可用 token。
+
+1) 生成 RSA keypair（私钥用于签发，公钥用于服务端验签）：
+
+```bash
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt_private.pem
+openssl pkey -in jwt_private.pem -pubout -out jwt_public.pem
+```
+
+2) 启动服务（使用公钥验签）：
+
+```bash
+export A2A_JWT_SECRET_FILE=./jwt_public.pem
+export A2A_JWT_ALGORITHM=RS256
+export A2A_JWT_ISSUER=my-issuer
+export A2A_JWT_AUDIENCE=my-audience
+
+./.venv/bin/opencode-a2a
+```
+
+3) 用私钥签发一个短期 token（`exp` 必填；可选 `scope`）：
+
+```bash
+TOKEN="$(./.venv/bin/python - <<'PY'
+import time, jwt
+priv = open("jwt_private.pem", "r", encoding="utf-8").read()
+payload = {
+  "iss": "my-issuer",
+  "aud": "my-audience",
+  "exp": int(time.time()) + 3600,
+  "scope": "opencode",
+}
+print(jwt.encode(payload, priv, algorithm="RS256"))
+PY
+)"
+echo "$TOKEN"
+```
+
+4) 带上 token 调用：
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/message:send \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H 'content-type: application/json' \
+  -d '{"message":{"message_id":"msg-1","role":"user","parts":[{"kind":"text","text":"hello"}]}}'
 ```
 
 ## Streaming 断线续订（resubscribe）

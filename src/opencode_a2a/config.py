@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 def _get_env(name: str, default: str | None = None) -> str | None:
@@ -64,6 +66,21 @@ def _parse_scopes(value: str | None) -> dict[str, str]:
     return scopes
 
 
+def _read_text_file(path: str) -> str:
+    return Path(path).expanduser().read_text(encoding="utf-8")
+
+
+def _get_b64_decoded_env(name: str) -> str | None:
+    raw = _get_env(name)
+    if raw is None:
+        return None
+    try:
+        decoded = base64.b64decode(raw, validate=True)
+    except ValueError as e:
+        raise ValueError(f"{name} must be valid base64") from e
+    return decoded.decode("utf-8")
+
+
 def _get_normalized_choice(name: str, default: str, choices: set[str]) -> str:
     value = _get_env(name)
     if value is None:
@@ -108,6 +125,13 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
+        jwt_secret = _get_b64_decoded_env("A2A_JWT_SECRET_B64")
+        if jwt_secret is None:
+            jwt_secret_file = _get_env("A2A_JWT_SECRET_FILE")
+            if jwt_secret_file:
+                jwt_secret = _read_text_file(jwt_secret_file)
+            else:
+                jwt_secret = _get_env("A2A_JWT_SECRET")
         return cls(
             opencode_base_url=str(_get_env("OPENCODE_BASE_URL", "http://127.0.0.1:4096")),
             opencode_directory=_get_env("OPENCODE_DIRECTORY"),
@@ -129,7 +153,7 @@ class Settings:
             a2a_log_body_limit=_get_int("A2A_LOG_BODY_LIMIT", 0),
             a2a_host=str(_get_env("A2A_HOST", "127.0.0.1")),
             a2a_port=_get_int("A2A_PORT", 8000),
-            a2a_jwt_secret=_get_env("A2A_JWT_SECRET"),
+            a2a_jwt_secret=jwt_secret,
             a2a_jwt_algorithm=str(_get_env("A2A_JWT_ALGORITHM", "RS256")),
             a2a_jwt_issuer=_get_env("A2A_JWT_ISSUER"),
             a2a_jwt_audience=_get_env("A2A_JWT_AUDIENCE"),

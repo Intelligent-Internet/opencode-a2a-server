@@ -10,8 +10,8 @@ if [[ ! -x "$A2A_BIN" ]]; then
   exit 1
 fi
 
-if [[ -z "${A2A_JWT_SECRET:-}" ]]; then
-  echo "A2A_JWT_SECRET is required" >&2
+if [[ -z "${A2A_JWT_SECRET_B64:-}" && -z "${A2A_JWT_SECRET_FILE:-}" && -z "${A2A_JWT_SECRET:-}" ]]; then
+  echo "One of A2A_JWT_SECRET_B64/A2A_JWT_SECRET_FILE/A2A_JWT_SECRET is required" >&2
   exit 1
 fi
 if [[ -z "${A2A_JWT_ISSUER:-}" ]]; then
