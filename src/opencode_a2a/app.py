@@ -216,9 +216,7 @@ def create_app(settings: Settings) -> FastAPI:
     if settings.a2a_jwt_scope_match not in {"any", "all"}:
         raise RuntimeError("A2A_JWT_SCOPE_MATCH must be 'any' or 'all'")
     if settings.a2a_jwt_algorithm not in ALLOWED_JWT_ALGORITHMS:
-        raise RuntimeError(
-            f"A2A_JWT_ALGORITHM must be one of {sorted(ALLOWED_JWT_ALGORITHMS)}"
-        )
+        raise RuntimeError(f"A2A_JWT_ALGORITHM must be one of {sorted(ALLOWED_JWT_ALGORITHMS)}")
     if not settings.a2a_jwt_audience:
         raise RuntimeError("A2A_JWT_AUDIENCE must be set")
     if not settings.a2a_jwt_issuer:

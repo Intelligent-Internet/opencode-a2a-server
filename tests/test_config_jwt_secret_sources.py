@@ -1,4 +1,5 @@
 import base64
+
 import pytest
 
 from opencode_a2a.config import Settings
