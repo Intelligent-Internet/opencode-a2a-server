@@ -74,6 +74,7 @@ def _get_b64_decoded_env(name: str) -> str | None:
     raw = _get_env(name)
     if raw is None:
         return None
+    raw = raw.strip()
     try:
         decoded = base64.b64decode(raw, validate=True)
     except ValueError as e:
