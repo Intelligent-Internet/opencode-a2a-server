@@ -160,8 +160,8 @@ async def get_auth_dependency(
             issuer=settings.a2a_jwt_issuer,
             options=decode_options,
         )
-        if settings.a2a_oauth_scopes:
-            required_scopes = set(settings.a2a_oauth_scopes.keys())
+        if settings.a2a_required_scopes:
+            required_scopes = set(settings.a2a_required_scopes)
             token_scopes = _normalize_token_scopes(payload)
             if settings.a2a_jwt_scope_match == "all":
                 ok = required_scopes.issubset(token_scopes)

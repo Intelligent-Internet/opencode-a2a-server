@@ -55,15 +55,15 @@ def _get_bool(name: str, default: bool) -> bool:
     return default
 
 
-def _parse_scopes(value: str | None) -> dict[str, str]:
+def _parse_csv_set(value: str | None) -> set[str]:
     if not value:
-        return {}
-    scopes: dict[str, str] = {}
+        return set()
+    out: set[str] = set()
     for raw in value.split(","):
-        scope = raw.strip()
-        if scope:
-            scopes[scope] = ""
-    return scopes
+        v = raw.strip()
+        if v:
+            out.add(v)
+    return out
 
 
 def _read_text_file(path: str) -> str:
@@ -119,10 +119,7 @@ class Settings:
     a2a_jwt_issuer: str | None
     a2a_jwt_audience: str | None
     a2a_jwt_scope_match: str
-    a2a_oauth_authorization_url: str | None
-    a2a_oauth_token_url: str | None
-    a2a_oauth_metadata_url: str | None
-    a2a_oauth_scopes: dict[str, str]
+    a2a_required_scopes: set[str]
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -163,8 +160,5 @@ class Settings:
                 default="any",
                 choices={"any", "all"},
             ),
-            a2a_oauth_authorization_url=_get_env("A2A_OAUTH_AUTHORIZATION_URL"),
-            a2a_oauth_token_url=_get_env("A2A_OAUTH_TOKEN_URL"),
-            a2a_oauth_metadata_url=_get_env("A2A_OAUTH_METADATA_URL"),
-            a2a_oauth_scopes=_parse_scopes(_get_env("A2A_OAUTH_SCOPES")),
+            a2a_required_scopes=_parse_csv_set(_get_env("A2A_REQUIRED_SCOPES")),
         )
