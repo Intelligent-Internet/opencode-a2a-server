@@ -21,9 +21,9 @@
 - `A2A_PROTOCOL_VERSION`：A2A 协议版本，默认 `0.3.0`
 - `A2A_HOST`：监听地址，默认 `127.0.0.1`
 - `A2A_PORT`：监听端口，默认 `8000`
-- `A2A_JWT_SECRET`：JWT 验签 key（建议使用非对称算法的 **public key PEM**）
-- `A2A_JWT_SECRET_B64`：base64 编码的 JWT 验签 key（推荐用于 systemd `EnvironmentFile`，避免 PEM 多行换行问题）
-- `A2A_JWT_SECRET_FILE`：JWT 验签 key 文件路径（本地调试方便；注意服务进程需要有读取权限）
+- `A2A_JWT_SECRET_B64`：base64 编码的 JWT 验签 key（推荐用于 systemd `EnvironmentFile`，避免 PEM 多行换行问题；**优先级最高**）
+- `A2A_JWT_SECRET_FILE`：JWT 验签 key 文件路径（便于本地调试；注意服务进程需要有读取权限；优先级次之）
+- `A2A_JWT_SECRET`：JWT 验签 key（单行；不推荐生产使用；优先级最低）
 - `A2A_JWT_ALGORITHM`：JWT 签名算法（**仅支持非对称算法**），默认 `RS256`
 - `A2A_JWT_ISSUER`：JWT 签发者校验（必填）
 - `A2A_JWT_AUDIENCE`：JWT 受众校验（必填）

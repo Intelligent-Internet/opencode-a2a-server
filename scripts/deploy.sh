@@ -134,6 +134,17 @@ if [[ -z "$A2A_JWT_SECRET_B64" && -z "$A2A_JWT_SECRET_FILE" && -z "$A2A_JWT_SECR
   echo "one of a2a_jwt_secret_b64/a2a_jwt_secret_file/a2a_jwt_secret is required" >&2
   exit 1
 fi
+
+# Prefer A2A_JWT_SECRET_B64 to avoid multiline env pitfalls in systemd EnvironmentFile.
+if [[ -z "$A2A_JWT_SECRET_B64" && -n "$A2A_JWT_SECRET" && "$A2A_JWT_SECRET" == *$'\n'* ]]; then
+  if ! command -v base64 >/dev/null 2>&1; then
+    echo "base64 is required to encode multiline a2a_jwt_secret; use a2a_jwt_secret_b64 or a2a_jwt_secret_file instead" >&2
+    exit 1
+  fi
+  A2A_JWT_SECRET_B64="$(printf '%s' "$A2A_JWT_SECRET" | base64 | tr -d '\n')"
+  A2A_JWT_SECRET=""
+fi
+
 if [[ -z "$A2A_JWT_ISSUER" ]]; then
   echo "a2a_jwt_issuer is required" >&2
   exit 1

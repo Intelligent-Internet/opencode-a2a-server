@@ -100,11 +100,9 @@ a2a_env_tmp="$(mktemp)"
   echo "A2A_PUBLIC_URL=${A2A_PUBLIC_URL}"
   if [[ -n "${A2A_JWT_SECRET_B64:-}" ]]; then
     echo "A2A_JWT_SECRET_B64=${A2A_JWT_SECRET_B64}"
-  fi
-  if [[ -n "${A2A_JWT_SECRET_FILE:-}" ]]; then
+  elif [[ -n "${A2A_JWT_SECRET_FILE:-}" ]]; then
     echo "A2A_JWT_SECRET_FILE=${A2A_JWT_SECRET_FILE}"
-  fi
-  if [[ -n "${A2A_JWT_SECRET:-}" ]]; then
+  else
     echo "A2A_JWT_SECRET=${A2A_JWT_SECRET}"
   fi
   echo "A2A_JWT_ALGORITHM=${A2A_JWT_ALGORITHM:-RS256}"

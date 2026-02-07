@@ -288,13 +288,15 @@ def create_app(settings: Settings) -> FastAPI:
 
 
 try:
-    settings = Settings.from_env()
-    app = create_app(settings)
+    _default_settings = Settings.from_env()
+    app = create_app(_default_settings)
+    _default_app_error: Exception | None = None
 except Exception as e:
-    # This allows importing the module without failing if env vars are missing
-    # but the 'app' will not be available.
+    # Allow importing without env vars for tests, but fail fast in main().
+    _default_settings = None
+    _default_app_error = e
     logger.warning("Could not create default app: %s", e)
-    app = None  # type: ignore
+    app = None  # type: ignore[assignment]
 
 
 def _normalize_log_level(value: str) -> str:
@@ -314,9 +316,35 @@ def _configure_logging(level: str) -> None:
 
 
 def main() -> None:
+    settings = _default_settings
+    if settings is None:
+        try:
+            settings = Settings.from_env()
+        except Exception as e:
+            # Prefer the original import-time error if present.
+            if _default_app_error is not None:
+                logger.error("Failed to load settings: %s", _default_app_error)
+            else:
+                logger.error("Failed to load settings: %s", e)
+            raise SystemExit(1) from e
+
     log_level = _normalize_log_level(settings.a2a_log_level)
     _configure_logging(log_level)
-    uvicorn.run(app, host=settings.a2a_host, port=settings.a2a_port, log_level=log_level.lower())
+
+    runtime_app = app
+    if runtime_app is None:
+        try:
+            runtime_app = create_app(settings)
+        except Exception as e:
+            logger.error("Failed to create app: %s", e)
+            raise SystemExit(1) from e
+
+    uvicorn.run(
+        runtime_app,
+        host=settings.a2a_host,
+        port=settings.a2a_port,
+        log_level=log_level.lower(),
+    )
 
 
 if __name__ == "__main__":
