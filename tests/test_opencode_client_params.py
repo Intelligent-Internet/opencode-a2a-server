@@ -67,4 +67,3 @@ async def test_merge_params_does_not_allow_directory_override(monkeypatch):
     assert seen["params"]["size"] == "10"
 
     await client.close()
-

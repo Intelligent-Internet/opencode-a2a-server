@@ -47,6 +47,7 @@
 - 触发方式：通过 **A2A JSON-RPC**（默认 `POST /`）调用扩展方法。
 - 鉴权：复用同一个 `Authorization: Bearer <token>`。
 - 安全：即使开启 `A2A_LOG_PAYLOADS=true`，当检测到 `method=opencode.sessions.*` 的 JSON-RPC 请求时，服务也不会将请求/响应 body 写入日志（避免泄露聊天历史）。
+- 调用 URL：建议从 Agent Card 的 `additional_interfaces[]` 中选择 `transport=jsonrpc` 的 `url`，避免自行拼接推导。
 
 ### 会话列表（method: opencode.sessions.list）
 
@@ -58,7 +59,7 @@ curl -sS http://127.0.0.1:8000/ \
     "jsonrpc": "2.0",
     "id": 1,
     "method": "opencode.sessions.list",
-    "params": {}
+    "params": {"page": 1, "size": 20}
   }'
 ```
 
@@ -73,7 +74,9 @@ curl -sS http://127.0.0.1:8000/ \
     "id": 2,
     "method": "opencode.sessions.messages.list",
     "params": {
-      "session_id": "<session_id>"
+      "session_id": "<session_id>",
+      "page": 1,
+      "size": 50
     }
   }'
 ```

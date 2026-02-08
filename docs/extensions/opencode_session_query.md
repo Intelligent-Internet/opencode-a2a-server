@@ -21,12 +21,14 @@ Agent Card 的 `capabilities.extensions[]` 会声明：
 - `required`: `false`
 - `params.methods.list_sessions`: JSON-RPC method 名（默认 `opencode.sessions.list`）
 - `params.methods.get_session_messages`: JSON-RPC method 名（默认 `opencode.sessions.messages.list`）
-- `params.pagination`: 当前实现为透传式（仅支持 `page/size`，服务端会作为 query params 透传给 OpenCode serve）
-- `params.result_schema`: 可选；当前为空（客户端按 JSON 透传处理）
+- `params.pagination`: 明确分页契约（见下方说明），仅支持 `page/size`
+- `params.errors`: 业务错误码与 error.data 的稳定字段
+- `params.result_envelope`: 返回 envelope 契约（避免客户端绑定 OpenCode 私有 schema）
 
 说明：
 
 - `directory` 参数由服务端配置（`OPENCODE_DIRECTORY`）控制，客户端通过 `query` 传入的 `directory` 会被忽略（不可覆盖）。
+- JSON-RPC 调用 URL 不建议由 base_url 推导：应从 Agent Card 的 `additional_interfaces[]` 中选择 `transport==jsonrpc` 的 `url`。
 
 ## 请求格式（JSON-RPC）
 
@@ -39,7 +41,7 @@ method: `opencode.sessions.list`
 params（可选）：
 
 - `query`: object，可选；透传 query params 给 OpenCode serve（key/value 建议为字符串）
-- `page/size`: 可选；作为 query params 透传
+- `page/size`: 可选；作为 query params 透传（仅支持 page/size；`size` 最大值见 Agent Card `params.pagination.max_size`）
 
 示例：
 
@@ -49,6 +51,8 @@ params（可选）：
   "id": 1,
   "method": "opencode.sessions.list",
   "params": {
+    "page": 1,
+    "size": 20,
     "query": {}
   }
 }
@@ -72,7 +76,9 @@ params：
   "id": 2,
   "method": "opencode.sessions.messages.list",
   "params": {
-    "session_id": "sess-xxx"
+    "session_id": "sess-xxx",
+    "page": 1,
+    "size": 50
   }
 }
 ```
@@ -86,12 +92,24 @@ params：
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "...": "OpenCode serve JSON payload (透传)"
+    "raw": {
+      "...": "OpenCode serve JSON payload (透传)"
+    },
+    "items": [],
+    "pagination": {
+      "mode": "page_size",
+      "page": 1,
+      "size": 20
+    }
   }
 }
 ```
 
-其中 `result` 为 OpenCode serve 的 JSON 响应 **原样透传**（schema 以 OpenCode server 为准）。
+其中：
+
+- `result.raw` 为 OpenCode serve 的 JSON 响应 **原样透传**（schema 以 OpenCode server 为准）。
+- `result.items` 为便利字段：若 upstream payload 包含 `items` 数组则透出，否则为 `null`。
+- `result.pagination` 为稳定的分页 envelope（page/size 为空表示本次请求未显式传入）。
 
 ## 日志与隐私
 

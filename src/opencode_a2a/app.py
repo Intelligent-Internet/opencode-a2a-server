@@ -30,7 +30,11 @@ from starlette.responses import StreamingResponse
 
 from .agent import OpencodeAgentExecutor
 from .config import Settings
-from .jsonrpc_ext import OpencodeSessionQueryJSONRPCApplication
+from .jsonrpc_ext import (
+    SESSION_QUERY_PAGINATION_DEFAULT_SIZE,
+    SESSION_QUERY_PAGINATION_MAX_SIZE,
+    OpencodeSessionQueryJSONRPCApplication,
+)
 from .opencode_client import OpencodeClient
 
 logger = logging.getLogger(__name__)
@@ -118,11 +122,32 @@ def build_agent_card(settings: Settings) -> AgentCard:
                     params={
                         "methods": SESSION_QUERY_METHODS,
                         "pagination": {
-                            "style": "passthrough",
-                            "supported": True,
+                            # Explicit, discoverable contract for generic clients.
+                            "mode": "page_size",
+                            "behavior": "passthrough",
                             "params": ["page", "size"],
+                            "default_size": SESSION_QUERY_PAGINATION_DEFAULT_SIZE,
+                            "max_size": SESSION_QUERY_PAGINATION_MAX_SIZE,
                         },
-                        "result_schema": None,
+                        "errors": {
+                            # JSON-RPC standard errors still apply (e.g. -32602 invalid params).
+                            # Business-level, server-defined errors (JSON-RPC reserved range).
+                            "business_codes": {
+                                "SESSION_NOT_FOUND": -32001,
+                                "UPSTREAM_UNREACHABLE": -32002,
+                                "UPSTREAM_HTTP_ERROR": -32003,
+                            },
+                            # Stable fields returned in error.data for business errors.
+                            "error_data_fields": ["type", "session_id", "upstream_status"],
+                        },
+                        # Result envelope avoids binding callers to OpenCode private schema.
+                        # "raw" is always present and contains the upstream JSON payload as-is.
+                        "result_envelope": {
+                            "fields": ["raw", "items", "pagination"],
+                            "raw_field": "raw",
+                            "items_field": "items",
+                            "pagination_field": "pagination",
+                        },
                     },
                 )
             ],

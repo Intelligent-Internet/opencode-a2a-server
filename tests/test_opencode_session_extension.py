@@ -109,6 +109,7 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
         payload = resp.json()
         assert payload["jsonrpc"] == "2.0"
         assert payload["id"] == 1
+        assert "raw" in payload["result"]
         assert payload["result"]["items"][0]["id"] == "s-1"
         assert dummy.last_sessions_params is not None
         assert dummy.last_sessions_params.get("page") == 1
@@ -128,6 +129,7 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
         payload = resp.json()
         assert payload["jsonrpc"] == "2.0"
         assert payload["id"] == 2
+        assert "raw" in payload["result"]
         assert payload["result"]["items"][0]["text"] == "SECRET_HISTORY"
         assert dummy.last_messages_params is not None
         assert dummy.last_messages_params.get("page") == 2
@@ -160,6 +162,66 @@ async def test_session_query_extension_rejects_cursor_limit(monkeypatch):
         assert payload["jsonrpc"] == "2.0"
         assert payload["id"] == 1
         assert payload["error"]["code"] == -32602
+
+
+@pytest.mark.asyncio
+async def test_session_query_extension_rejects_size_over_max(monkeypatch):
+    import opencode_a2a.app as app_module
+
+    dummy = DummyOpencodeClient(_settings(token="t-1", log_payloads=False))
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "opencode.sessions.list",
+                "params": {"page": 1, "size": 1000},
+            },
+        )
+        payload = resp.json()
+        assert payload["jsonrpc"] == "2.0"
+        assert payload["id"] == 1
+        assert payload["error"]["code"] == -32602
+
+
+@pytest.mark.asyncio
+async def test_session_query_extension_maps_404_to_session_not_found(monkeypatch):
+    import opencode_a2a.app as app_module
+
+    class NotFoundOpencodeClient(DummyOpencodeClient):
+        async def list_messages(self, session_id: str, *, params=None):
+            request = httpx.Request("GET", "http://opencode/session/x/message")
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("Not Found", request=request, response=response)
+
+    monkeypatch.setattr(app_module, "OpencodeClient", NotFoundOpencodeClient)
+    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "opencode.sessions.messages.list",
+                "params": {"session_id": "s-404"},
+            },
+        )
+        payload = resp.json()
+        assert payload["jsonrpc"] == "2.0"
+        assert payload["id"] == 2
+        assert payload["error"]["code"] == -32001
+        assert payload["error"]["data"]["type"] == "SESSION_NOT_FOUND"
 
 
 @pytest.mark.asyncio
