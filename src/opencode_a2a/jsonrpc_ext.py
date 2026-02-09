@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 import httpx
@@ -12,6 +13,12 @@ from a2a.types import (
     InvalidRequestError,
     JSONRPCError,
     JSONRPCRequest,
+    Message,
+    Role,
+    Task,
+    TaskState,
+    TaskStatus,
+    TextPart,
 )
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
@@ -44,6 +51,59 @@ def _parse_positive_int(value: Any, *, field: str) -> int | None:
     if parsed < 1:
         raise ValueError(f"{field} must be >= 1")
     return parsed
+
+
+def _as_a2a_session_task(session: Any) -> dict[str, Any] | None:
+    if not isinstance(session, dict):
+        return None
+    raw_id = session.get("id") or session.get("session_id") or session.get("sessionId")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        return None
+    session_id = raw_id.strip()
+    task = Task(
+        id=session_id,
+        context_id=session_id,
+        status=TaskStatus(state=TaskState.input_required),
+        metadata={"opencode": {"raw": session}},
+    )
+    return task.model_dump(by_alias=True, exclude_none=True)
+
+
+def _as_a2a_message(session_id: str, item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+
+    raw_id = item.get("id") or item.get("message_id") or item.get("messageId")
+    message_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else str(uuid.uuid4())
+
+    role_raw = item.get("role")
+    role = Role.agent
+    if isinstance(role_raw, str) and role_raw.strip().lower() == "user":
+        role = Role.user
+
+    text = item.get("text")
+    if not isinstance(text, str):
+        # Best-effort extraction from OpenCode-like parts.
+        parts = item.get("parts")
+        if isinstance(parts, list):
+            texts: list[str] = []
+            for part in parts:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    part_text = part.get("text")
+                    if isinstance(part_text, str) and part_text:
+                        texts.append(part_text)
+            text = "".join(texts).strip()
+        else:
+            text = ""
+
+    msg = Message(
+        message_id=message_id,
+        role=role,
+        parts=[TextPart(text=text)],
+        context_id=session_id,
+        metadata={"opencode": {"raw": item, "session_id": session_id}},
+    )
+    return msg.model_dump(by_alias=True, exclude_none=True)
 
 
 class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
@@ -211,15 +271,29 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                 A2AError(root=InternalError(message=str(exc))),
             )
 
-        items = None
+        raw_items: list[Any] = []
         if isinstance(raw_result, dict) and isinstance(raw_result.get("items"), list):
-            items = raw_result.get("items")
+            raw_items = raw_result["items"]
+
+        # Protocol: items are always arrays of A2A objects.
+        # Task for sessions; Message for messages.
+        if base_request.method == self._method_list_sessions:
+            mapped: list[dict[str, Any]] = []
+            for item in raw_items:
+                task = _as_a2a_session_task(item)
+                if task is not None:
+                    mapped.append(task)
+            items: list[dict[str, Any]] = mapped
         else:
-            # Contract: result.items is always an array (never null) for easier client consumption.
-            items = []
+            assert session_id is not None
+            mapped = []
+            for item in raw_items:
+                message = _as_a2a_message(session_id, item)
+                if message is not None:
+                    mapped.append(message)
+            items = mapped
 
         result = {
-            "raw": raw_result,
             "items": items,
             "pagination": {
                 "mode": "page_size",

@@ -111,8 +111,11 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
         payload = resp.json()
         assert payload["jsonrpc"] == "2.0"
         assert payload["id"] == 1
-        assert "raw" in payload["result"]
-        assert payload["result"]["items"][0]["id"] == "s-1"
+        assert "raw" not in payload["result"]
+        session = payload["result"]["items"][0]
+        assert session["id"] == "s-1"
+        assert session["contextId"] == "s-1"
+        assert session["metadata"]["opencode"]["raw"]["id"] == "s-1"
         assert dummy.last_sessions_params is not None
         assert dummy.last_sessions_params.get("page") == 1
         assert dummy.last_sessions_params.get("size") == 10
@@ -131,8 +134,11 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
         payload = resp.json()
         assert payload["jsonrpc"] == "2.0"
         assert payload["id"] == 2
-        assert "raw" in payload["result"]
-        assert payload["result"]["items"][0]["text"] == "SECRET_HISTORY"
+        assert "raw" not in payload["result"]
+        message = payload["result"]["items"][0]
+        assert message["contextId"] == "s-1"
+        assert message["parts"][0]["text"] == "SECRET_HISTORY"
+        assert message["metadata"]["opencode"]["session_id"] == "s-1"
         assert dummy.last_messages_params is not None
         assert dummy.last_messages_params.get("page") == 2
         assert dummy.last_messages_params.get("size") == 5

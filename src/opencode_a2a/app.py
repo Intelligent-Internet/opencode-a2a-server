@@ -165,11 +165,10 @@ def build_agent_card(settings: Settings) -> AgentCard:
                             # Stable fields returned in error.data for business errors.
                             "error_data_fields": ["type", "session_id", "upstream_status"],
                         },
-                        # Result envelope avoids binding callers to OpenCode private schema.
-                        # "raw" is always present and contains the upstream JSON payload as-is.
+                        # Result envelope is A2A-first.
+                        # items are serialized A2A Task/Message objects.
                         "result_envelope": {
-                            "fields": ["raw", "items", "pagination"],
-                            "raw_field": "raw",
+                            "fields": ["items", "pagination"],
                             "items_field": "items",
                             "pagination_field": "pagination",
                         },

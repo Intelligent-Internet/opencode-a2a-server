@@ -92,9 +92,6 @@ params：
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "raw": {
-      "...": "OpenCode serve JSON payload (透传)"
-    },
     "items": [],
     "pagination": {
       "mode": "page_size",
@@ -107,8 +104,10 @@ params：
 
 其中：
 
-- `result.raw` 为 OpenCode serve 的 JSON 响应 **原样透传**（schema 以 OpenCode server 为准）。
-- `result.items` 为便利字段：**始终为数组**（上游 payload 包含 `items` 数组则透出，否则为 `[]`）。
+- `result.items` 始终为数组：
+  - `opencode.sessions.list`：items 为 **A2A Task** 数组（`task.id == task.contextId == opencode session_id`）。
+  - `opencode.sessions.messages.list`：items 为 **A2A Message** 数组（`message.contextId == opencode session_id`）。
+  - OpenCode 原始 item 不丢弃，放在 `metadata.opencode.raw` 中。
 - `result.pagination` 为稳定的分页 envelope（page/size 为空表示本次请求未显式传入）。
 
 ## 日志与隐私
