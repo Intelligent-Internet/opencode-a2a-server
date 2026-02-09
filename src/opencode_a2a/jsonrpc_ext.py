@@ -53,6 +53,35 @@ def _parse_positive_int(value: Any, *, field: str) -> int | None:
     return parsed
 
 
+UNTITLED_SESSION_TITLE = "Untitled session"
+
+
+def _extract_session_title(session: dict[str, Any], *, session_id: str) -> str:
+    candidates: list[Any] = [
+        session.get("title"),
+        session.get("name"),
+    ]
+
+    summary = session.get("summary")
+    if isinstance(summary, dict):
+        candidates.append(summary.get("title"))
+
+    info = session.get("info")
+    if isinstance(info, dict):
+        info_summary = info.get("summary")
+        if isinstance(info_summary, dict):
+            candidates.append(info_summary.get("title"))
+
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    # Stable placeholder so downstream can always render a label.
+    # Downstream can still fall back to session_id if they prefer.
+    _ = session_id
+    return UNTITLED_SESSION_TITLE
+
+
 def _as_a2a_session_task(session: Any) -> dict[str, Any] | None:
     if not isinstance(session, dict):
         return None
@@ -60,12 +89,13 @@ def _as_a2a_session_task(session: Any) -> dict[str, Any] | None:
     if not isinstance(raw_id, str) or not raw_id.strip():
         return None
     session_id = raw_id.strip()
+    title = _extract_session_title(session, session_id=session_id)
     task = Task(
         id=session_id,
         context_id=session_id,
         # Model OpenCode sessions as completed A2A Tasks for stable downstream rendering.
         status=TaskStatus(state=TaskState.completed),
-        metadata={"opencode": {"raw": session}},
+        metadata={"opencode": {"raw": session, "title": title}},
     )
     return task.model_dump(by_alias=True, exclude_none=True)
 
@@ -74,10 +104,15 @@ def _as_a2a_message(session_id: str, item: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
 
+    info = item.get("info")
     raw_id = item.get("id") or item.get("message_id") or item.get("messageId")
+    if raw_id is None and isinstance(info, dict):
+        raw_id = info.get("id") or info.get("messageID") or info.get("messageId")
     message_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else str(uuid.uuid4())
 
     role_raw = item.get("role")
+    if not isinstance(role_raw, str) and isinstance(info, dict):
+        role_raw = info.get("role")
     role = Role.agent
     if isinstance(role_raw, str) and role_raw.strip().lower() == "user":
         role = Role.user
