@@ -32,11 +32,35 @@ LOG_DIR="${PROJECT_DIR}/logs"
 RUN_DIR="${PROJECT_DIR}/run"
 ASKPASS_SCRIPT="${RUN_DIR}/git-askpass.sh"
 
+# DATA_ROOT must be traversable by the per-project system user. In hardened
+# deployments, using a personal directory like /data/projects (0700) will break
+# OpenCode writes to $HOME/.cache and $HOME/.local.
+ensure_data_root_accessible() {
+  local root="$1"
+  if ! sudo test -d "$root"; then
+    sudo install -d -m 711 -o root -g root "$root"
+    return 0
+  fi
+  local mode
+  mode="$(sudo stat -c '%a' "$root" 2>/dev/null || echo "")"
+  if [[ ! "$mode" =~ ^[0-9]{3,4}$ ]]; then
+    echo "Unable to stat DATA_ROOT: ${root}" >&2
+    exit 1
+  fi
+  local other=$((mode % 10))
+  if (( (other & 1) == 0 )); then
+    echo "DATA_ROOT is not traversable by project users: ${root} (mode=${mode})." >&2
+    echo "Fix: choose a different DATA_ROOT (recommended: /data/opencode-a2a) or chmod o+x on DATA_ROOT." >&2
+    exit 1
+  fi
+}
+
+ensure_data_root_accessible "$DATA_ROOT"
+
 if ! id "$PROJECT_NAME" &>/dev/null; then
   sudo adduser --system --group --home "$PROJECT_DIR" "$PROJECT_NAME"
 fi
 
-sudo install -d -m 711 -o root -g root "$DATA_ROOT"
 sudo install -d -m 700 -o "$PROJECT_NAME" -g "$PROJECT_NAME" "$PROJECT_DIR" "$WORKSPACE_DIR" "$LOG_DIR" "$RUN_DIR"
 sudo install -d -m 700 -o root -g root "$CONFIG_DIR"
 
