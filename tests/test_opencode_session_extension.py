@@ -54,6 +54,8 @@ def _settings(*, token: str, log_payloads: bool) -> Settings:
         a2a_oauth_token_url=None,
         a2a_oauth_metadata_url=None,
         a2a_oauth_scopes={},
+        a2a_session_cache_ttl_seconds=3600,
+        a2a_session_cache_maxsize=10_000,
     )
 
 
@@ -109,8 +111,12 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
         payload = resp.json()
         assert payload["jsonrpc"] == "2.0"
         assert payload["id"] == 1
-        assert "raw" in payload["result"]
-        assert payload["result"]["items"][0]["id"] == "s-1"
+        assert "raw" not in payload["result"]
+        session = payload["result"]["items"][0]
+        assert session["id"] == "s-1"
+        assert session["contextId"] == "s-1"
+        assert session["metadata"]["opencode"]["raw"]["id"] == "s-1"
+        assert session["metadata"]["opencode"]["title"] == "Untitled session"
         assert dummy.last_sessions_params is not None
         assert dummy.last_sessions_params.get("page") == 1
         assert dummy.last_sessions_params.get("size") == 10
@@ -129,11 +135,187 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
         payload = resp.json()
         assert payload["jsonrpc"] == "2.0"
         assert payload["id"] == 2
-        assert "raw" in payload["result"]
-        assert payload["result"]["items"][0]["text"] == "SECRET_HISTORY"
+        assert "raw" not in payload["result"]
+        message = payload["result"]["items"][0]
+        assert message["contextId"] == "s-1"
+        assert message["parts"][0]["text"] == "SECRET_HISTORY"
+        assert message["metadata"]["opencode"]["session_id"] == "s-1"
         assert dummy.last_messages_params is not None
         assert dummy.last_messages_params.get("page") == 2
         assert dummy.last_messages_params.get("size") == 5
+
+
+@pytest.mark.asyncio
+async def test_session_query_extension_items_is_always_array(monkeypatch):
+    import opencode_a2a.app as app_module
+
+    class WeirdPayloadClient(DummyOpencodeClient):
+        def __init__(self, _settings: Settings) -> None:
+            super().__init__(_settings)
+            self._sessions_payload = {"foo": "bar"}  # no items
+
+    monkeypatch.setattr(app_module, "OpencodeClient", WeirdPayloadClient)
+    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "opencode.sessions.list",
+                "params": {},
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["result"]["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_session_query_extension_session_title_is_extracted_or_placeholder(monkeypatch):
+    import opencode_a2a.app as app_module
+
+    class TitlePayloadClient(DummyOpencodeClient):
+        def __init__(self, _settings: Settings) -> None:
+            super().__init__(_settings)
+            self._sessions_payload = {"items": [{"id": "s-1", "title": "My Session"}]}
+
+    monkeypatch.setattr(app_module, "OpencodeClient", TitlePayloadClient)
+    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={"jsonrpc": "2.0", "id": 1, "method": "opencode.sessions.list", "params": {}},
+        )
+        payload = resp.json()
+        session = payload["result"]["items"][0]
+        assert session["id"] == "s-1"
+        assert session["metadata"]["opencode"]["title"] == "My Session"
+
+
+@pytest.mark.asyncio
+async def test_session_query_extension_message_role_and_id_from_info(monkeypatch):
+    import opencode_a2a.app as app_module
+
+    class InfoRoleClient(DummyOpencodeClient):
+        def __init__(self, _settings: Settings) -> None:
+            super().__init__(_settings)
+            self._messages_payload = {
+                "items": [
+                    {
+                        "info": {"id": "msg-1", "role": "user"},
+                        "parts": [{"type": "text", "text": "hello"}],
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(app_module, "OpencodeClient", InfoRoleClient)
+    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "opencode.sessions.messages.list",
+                "params": {"session_id": "s-1"},
+            },
+        )
+        payload = resp.json()
+        message = payload["result"]["items"][0]
+        assert message["messageId"] == "msg-1"
+        assert message["role"] == "user"
+        assert message["parts"][0]["text"] == "hello"
+
+
+@pytest.mark.asyncio
+async def test_session_query_extension_accepts_top_level_list_payload(monkeypatch):
+    import opencode_a2a.app as app_module
+
+    class ListPayloadClient(DummyOpencodeClient):
+        def __init__(self, _settings: Settings) -> None:
+            super().__init__(_settings)
+            self._sessions_payload = [{"id": "s-1"}]
+            self._messages_payload = [{"id": "m-1", "text": "SECRET_HISTORY"}]
+
+    monkeypatch.setattr(app_module, "OpencodeClient", ListPayloadClient)
+    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={"jsonrpc": "2.0", "id": 1, "method": "opencode.sessions.list", "params": {}},
+        )
+        payload = resp.json()
+        assert payload["result"]["items"][0]["id"] == "s-1"
+
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "opencode.sessions.messages.list",
+                "params": {"session_id": "s-1"},
+            },
+        )
+        payload = resp.json()
+        assert payload["result"]["items"][0]["contextId"] == "s-1"
+        assert payload["result"]["items"][0]["parts"][0]["text"] == "SECRET_HISTORY"
+
+
+@pytest.mark.asyncio
+async def test_session_query_extension_accepts_alternative_list_keys(monkeypatch):
+    import opencode_a2a.app as app_module
+
+    class AltKeyPayloadClient(DummyOpencodeClient):
+        def __init__(self, _settings: Settings) -> None:
+            super().__init__(_settings)
+            self._sessions_payload = {"sessions": [{"id": "s-1"}]}
+            self._messages_payload = {"messages": [{"id": "m-1", "text": "SECRET_HISTORY"}]}
+
+    monkeypatch.setattr(app_module, "OpencodeClient", AltKeyPayloadClient)
+    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={"jsonrpc": "2.0", "id": 1, "method": "opencode.sessions.list", "params": {}},
+        )
+        payload = resp.json()
+        assert payload["result"]["items"][0]["id"] == "s-1"
+
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "opencode.sessions.messages.list",
+                "params": {"session_id": "s-1"},
+            },
+        )
+        payload = resp.json()
+        assert payload["result"]["items"][0]["contextId"] == "s-1"
+        assert payload["result"]["items"][0]["parts"][0]["text"] == "SECRET_HISTORY"
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 import httpx
@@ -12,6 +13,12 @@ from a2a.types import (
     InvalidRequestError,
     JSONRPCError,
     JSONRPCRequest,
+    Message,
+    Role,
+    Task,
+    TaskState,
+    TaskStatus,
+    TextPart,
 )
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
@@ -44,6 +51,155 @@ def _parse_positive_int(value: Any, *, field: str) -> int | None:
     if parsed < 1:
         raise ValueError(f"{field} must be >= 1")
     return parsed
+
+
+UNTITLED_SESSION_TITLE = "Untitled session"
+
+
+def _extract_session_title(session: dict[str, Any], *, session_id: str) -> str:
+    candidates: list[Any] = [
+        session.get("title"),
+        session.get("name"),
+    ]
+
+    summary = session.get("summary")
+    if isinstance(summary, dict):
+        candidates.append(summary.get("title"))
+
+    info = session.get("info")
+    if isinstance(info, dict):
+        info_summary = info.get("summary")
+        if isinstance(info_summary, dict):
+            candidates.append(info_summary.get("title"))
+
+    for value in candidates:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    # Stable placeholder so downstream can always render a label.
+    # Downstream can still fall back to session_id if they prefer.
+    _ = session_id
+    return UNTITLED_SESSION_TITLE
+
+
+def _as_a2a_session_task(session: Any) -> dict[str, Any] | None:
+    if not isinstance(session, dict):
+        return None
+    raw_id = session.get("id") or session.get("session_id") or session.get("sessionId")
+    if not isinstance(raw_id, str) or not raw_id.strip():
+        return None
+    session_id = raw_id.strip()
+    title = _extract_session_title(session, session_id=session_id)
+    task = Task(
+        id=session_id,
+        context_id=session_id,
+        # Model OpenCode sessions as completed A2A Tasks for stable downstream rendering.
+        status=TaskStatus(state=TaskState.completed),
+        metadata={"opencode": {"raw": session, "title": title}},
+    )
+    return task.model_dump(by_alias=True, exclude_none=True)
+
+
+def _as_a2a_message(session_id: str, item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+
+    info = item.get("info")
+    raw_id = item.get("id") or item.get("message_id") or item.get("messageId")
+    if raw_id is None and isinstance(info, dict):
+        raw_id = info.get("id") or info.get("messageID") or info.get("messageId")
+    message_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else str(uuid.uuid4())
+
+    role_raw = item.get("role")
+    if not isinstance(role_raw, str) and isinstance(info, dict):
+        role_raw = info.get("role")
+    role = Role.agent
+    if isinstance(role_raw, str) and role_raw.strip().lower() == "user":
+        role = Role.user
+
+    text = item.get("text")
+    if not isinstance(text, str):
+        # Best-effort extraction from OpenCode-like parts.
+        parts = item.get("parts")
+        if isinstance(parts, list):
+            texts: list[str] = []
+            for part in parts:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    part_text = part.get("text")
+                    if isinstance(part_text, str) and part_text:
+                        texts.append(part_text)
+            text = "".join(texts).strip()
+        else:
+            text = ""
+
+    msg = Message(
+        message_id=message_id,
+        role=role,
+        parts=[TextPart(text=text)],
+        context_id=session_id,
+        metadata={"opencode": {"raw": item, "session_id": session_id}},
+    )
+    return msg.model_dump(by_alias=True, exclude_none=True)
+
+
+def _extract_raw_items(raw_result: Any, *, kind: str) -> list[Any]:
+    """Extract list payloads from OpenCode responses.
+
+    OpenCode serve does not guarantee a stable envelope. In the wild, list endpoints may return:
+    - a top-level list
+    - a dict with the list under a non-standard key (e.g. "sessions", "messages", "data")
+    - a dict where there is exactly one list-valued field (plus metadata/pagination)
+
+    We accept common variants and fall back to a conservative heuristic.
+    """
+    if isinstance(raw_result, list):
+        return raw_result
+
+    if not isinstance(raw_result, dict):
+        return []
+
+    if kind == "sessions":
+        candidate_keys = ["items", "sessions", "data", "results"]
+    elif kind == "messages":
+        candidate_keys = ["items", "messages", "data", "results"]
+    else:
+        candidate_keys = ["items", "data", "results"]
+
+    # Common case: { "items": [...] } or { "sessions": [...] } / { "messages": [...] }.
+    for key in candidate_keys:
+        value = raw_result.get(key)
+        if isinstance(value, list):
+            return value
+
+    # Nested wrappers: { "data": { "items": [...] } } etc (one level deep).
+    for key in ("data", "result"):
+        nested = raw_result.get(key)
+        if not isinstance(nested, dict):
+            continue
+        for nested_key in candidate_keys:
+            value = nested.get(nested_key)
+            if isinstance(value, list):
+                return value
+
+    # Heuristic: if there's exactly one list-valued field, treat it as the payload.
+    list_keys = [k for k, v in raw_result.items() if isinstance(v, list)]
+    if len(list_keys) == 1:
+        guessed_key = list_keys[0]
+        logger.debug(
+            "OpenCode %s list payload missing standard keys=%s; using list field key=%s",
+            kind,
+            candidate_keys,
+            guessed_key,
+        )
+        return raw_result[guessed_key]
+
+    # Keep behavior stable: return [] and do not raise. Log keys for diagnosis (no content).
+    logger.debug(
+        "OpenCode %s list payload has no list field; type=dict keys=%s",
+        kind,
+        sorted(raw_result.keys()),
+    )
+    return []
 
 
 class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
@@ -211,12 +367,30 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                 A2AError(root=InternalError(message=str(exc))),
             )
 
-        items = None
-        if isinstance(raw_result, dict) and isinstance(raw_result.get("items"), list):
-            items = raw_result.get("items")
+        if base_request.method == self._method_list_sessions:
+            raw_items = _extract_raw_items(raw_result, kind="sessions")
+        else:
+            raw_items = _extract_raw_items(raw_result, kind="messages")
+
+        # Protocol: items are always arrays of A2A objects.
+        # Task for sessions; Message for messages.
+        if base_request.method == self._method_list_sessions:
+            mapped: list[dict[str, Any]] = []
+            for item in raw_items:
+                task = _as_a2a_session_task(item)
+                if task is not None:
+                    mapped.append(task)
+            items: list[dict[str, Any]] = mapped
+        else:
+            assert session_id is not None
+            mapped = []
+            for item in raw_items:
+                message = _as_a2a_message(session_id, item)
+                if message is not None:
+                    mapped.append(message)
+            items = mapped
 
         result = {
-            "raw": raw_result,
             "items": items,
             "pagination": {
                 "mode": "page_size",
