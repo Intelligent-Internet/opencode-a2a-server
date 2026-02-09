@@ -66,6 +66,11 @@ class StreamingCallContextBuilder(DefaultCallContextBuilder):
         )
         if is_stream:
             context.state["a2a_streaming_request"] = True
+
+        identity = getattr(request.state, "user_identity", None)
+        if identity:
+            context.state["identity"] = identity
+
         return context
 
 
@@ -235,6 +240,11 @@ def add_auth_middleware(app: FastAPI, settings: Settings) -> None:
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        
+        # Set user identity for ownership validation. 
+        # Even with a static token, we can use the token hash or just "default".
+        # If the token were a JWT, we would use the 'sub' claim here.
+        request.state.user_identity = "default"
         return await call_next(request)
 
 

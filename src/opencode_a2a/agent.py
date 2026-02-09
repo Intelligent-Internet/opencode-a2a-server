@@ -46,9 +46,10 @@ class _TTLSessions:
         # value: (session_id, expires_at_monotonic)
         self._store: dict[str, tuple[str, float]] = {}
 
-    def get(self, key: str) -> str | None:
+    def get(self, identity: str, context_id: str) -> str | None:
         if self._ttl_seconds <= 0 or self._maxsize <= 0:
             return None
+        key = f"{identity}:{context_id}"
         item = self._store.get(key)
         if not item:
             return None
@@ -58,15 +59,17 @@ class _TTLSessions:
             return None
         return value
 
-    def set(self, key: str, value: str) -> None:
+    def set(self, identity: str, context_id: str, value: str) -> None:
         if self._ttl_seconds <= 0 or self._maxsize <= 0:
             return
         now = self._now()
         expires_at = now + float(self._ttl_seconds)
+        key = f"{identity}:{context_id}"
         self._store[key] = (value, expires_at)
         self._evict_if_needed(now=now)
 
-    def pop(self, key: str) -> None:
+    def pop(self, identity: str, context_id: str) -> None:
+        key = f"{identity}:{context_id}"
         self._store.pop(key, None)
 
     def _evict_if_needed(self, *, now: float) -> None:
@@ -99,6 +102,7 @@ class OpencodeAgentExecutor(AgentExecutor):
             ttl_seconds=session_cache_ttl_seconds,
             maxsize=session_cache_maxsize,
         )
+        self._session_owners: dict[str, str] = {}  # session_id -> identity
         self._lock = asyncio.Lock()
         self._inflight_session_creates: dict[str, asyncio.Task[str]] = {}
 
@@ -115,6 +119,9 @@ class OpencodeAgentExecutor(AgentExecutor):
             )
             return
 
+        call_context = context.call_context
+        identity = (call_context.state.get("identity") if call_context else None) or "anonymous"
+
         streaming_request = self._should_stream(context)
         user_text = context.get_user_input().strip()
         bound_session_id = _extract_opencode_session_id(context)
@@ -130,7 +137,8 @@ class OpencodeAgentExecutor(AgentExecutor):
             return
 
         logger.debug(
-            "Received message task_id=%s context_id=%s streaming=%s text=%s",
+            "Received message identity=%s task_id=%s context_id=%s streaming=%s text=%s",
+            identity,
             task_id,
             context_id,
             streaming_request,
@@ -138,6 +146,7 @@ class OpencodeAgentExecutor(AgentExecutor):
         )
 
         session_id = await self._get_or_create_session(
+            identity,
             context_id,
             user_text,
             preferred_session_id=bound_session_id,
@@ -268,6 +277,9 @@ class OpencodeAgentExecutor(AgentExecutor):
                 )
                 return
 
+            call_context = context.call_context
+            identity = (call_context.state.get("identity") if call_context else None) or "anonymous"
+
             event = TaskStatusUpdateEvent(
                 task_id=task_id,
                 context_id=context_id,
@@ -276,7 +288,7 @@ class OpencodeAgentExecutor(AgentExecutor):
             )
             await event_queue.enqueue_event(event)
             async with self._lock:
-                self._sessions.pop(context_id)
+                self._sessions.pop(identity, context_id)
                 inflight = self._inflight_session_creates.pop(context_id, None)
             if inflight:
                 inflight.cancel()
@@ -298,6 +310,7 @@ class OpencodeAgentExecutor(AgentExecutor):
 
     async def _get_or_create_session(
         self,
+        identity: str,
         context_id: str,
         title: str,
         *,
@@ -306,12 +319,25 @@ class OpencodeAgentExecutor(AgentExecutor):
         # Caller explicitly bound the request to a known OpenCode session.
         if preferred_session_id:
             async with self._lock:
-                self._sessions.set(context_id, preferred_session_id)
+                owner = self._session_owners.get(preferred_session_id)
+                if owner and owner != identity:
+                    logger.warning(
+                        "Identity %s tried to hijack session %s owned by %s",
+                        identity,
+                        preferred_session_id,
+                        owner,
+                    )
+                    raise PermissionError(f"Session {preferred_session_id} is not owned by you")
+
+                if not owner:
+                    self._session_owners[preferred_session_id] = identity
+
+                self._sessions.set(identity, context_id, preferred_session_id)
             return preferred_session_id
 
         task: asyncio.Task[str] | None = None
         async with self._lock:
-            existing = self._sessions.get(context_id)
+            existing = self._sessions.get(identity, context_id)
             if existing:
                 return existing
             task = self._inflight_session_creates.get(context_id)
@@ -329,7 +355,8 @@ class OpencodeAgentExecutor(AgentExecutor):
 
         async with self._lock:
             # Session create finished; commit to cache and drop inflight marker.
-            self._sessions.set(context_id, session_id)
+            self._sessions.set(identity, context_id, session_id)
+            self._session_owners[session_id] = identity
             if self._inflight_session_creates.get(context_id) is task:
                 self._inflight_session_creates.pop(context_id, None)
         return session_id
