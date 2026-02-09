@@ -145,29 +145,30 @@ class OpencodeAgentExecutor(AgentExecutor):
             user_text,
         )
 
-        session_id = await self._get_or_create_session(
-            identity,
-            context_id,
-            user_text,
-            preferred_session_id=bound_session_id,
-        )
-
         stream_artifact_id = f"{task_id}:stream"
         stop_event = asyncio.Event()
         stream_task: asyncio.Task[None] | None = None
-        if streaming_request:
-            stream_task = asyncio.create_task(
-                self._consume_opencode_stream(
-                    session_id=session_id,
-                    task_id=task_id,
-                    context_id=context_id,
-                    artifact_id=stream_artifact_id,
-                    event_queue=event_queue,
-                    stop_event=stop_event,
-                )
-            )
 
         try:
+            session_id = await self._get_or_create_session(
+                identity,
+                context_id,
+                user_text,
+                preferred_session_id=bound_session_id,
+            )
+
+            if streaming_request:
+                stream_task = asyncio.create_task(
+                    self._consume_opencode_stream(
+                        session_id=session_id,
+                        task_id=task_id,
+                        context_id=context_id,
+                        artifact_id=stream_artifact_id,
+                        event_queue=event_queue,
+                        stop_event=stop_event,
+                    )
+                )
+
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=task_id,
@@ -287,6 +288,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                 final=True,
             )
             await event_queue.enqueue_event(event)
+
             async with self._lock:
                 self._sessions.pop(identity, context_id)
                 inflight = self._inflight_session_creates.pop(context_id, None)
