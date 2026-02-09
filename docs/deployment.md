@@ -231,7 +231,7 @@ sudo systemctl stop opencode@<project>.service
 systemd 单元已启用：
 
 - `ProtectSystem=strict`
-- `ReadWritePaths=${DATA_ROOT}/%i`
+- `ReadWritePaths=%h`
 - `PrivateTmp=true`
 - `NoNewPrivileges=true`
 
