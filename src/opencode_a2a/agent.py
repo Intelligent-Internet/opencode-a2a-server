@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from contextlib import suppress
+from pathlib import Path
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events.event_queue import EventQueue
@@ -106,6 +108,39 @@ class OpencodeAgentExecutor(AgentExecutor):
         self._lock = asyncio.Lock()
         self._inflight_session_creates: dict[str, asyncio.Task[str]] = {}
 
+    def _resolve_and_validate_directory(self, requested: str | None) -> str | None:
+        """Normalizes and validates the directory parameter against workspace boundaries.
+
+        Returns:
+            The normalized absolute path string if valid.
+        Raises:
+            ValueError: If the path is outside the allowed workspace.
+        """
+        base_dir_str = self._client.directory or os.getcwd()
+        base_path = Path(base_dir_str).resolve()
+
+        if not requested:
+            return str(base_path)
+
+        # 1. Deny override if disabled in settings
+        if not self._client.settings.a2a_allow_directory_override:
+            # If requested matches normalized base, it's fine.
+            requested_path = Path(requested).resolve()
+            if requested_path == base_path:
+                return str(base_path)
+            raise ValueError("Directory override is disabled by service configuration")
+
+        # 2. Resolve requested path
+        requested_path = Path(requested).resolve()
+
+        # 3. Boundary check: must be subpath of base_path
+        try:
+            requested_path.relative_to(base_path)
+        except ValueError:
+            raise ValueError(f"Directory {requested} is outside the allowed workspace {base_path}")
+
+        return str(requested_path)
+
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id
         context_id = context.context_id
@@ -125,6 +160,24 @@ class OpencodeAgentExecutor(AgentExecutor):
         streaming_request = self._should_stream(context)
         user_text = context.get_user_input().strip()
         bound_session_id = _extract_opencode_session_id(context)
+
+        # Directory validation
+        requested_dir = None
+        if context.metadata:
+            requested_dir = context.metadata.get("directory")
+        
+        try:
+            directory = self._resolve_and_validate_directory(requested_dir)
+        except ValueError as e:
+            logger.warning("Directory validation failed: %s", e)
+            await self._emit_error(
+                event_queue,
+                task_id=task_id,
+                context_id=context_id,
+                message=str(e),
+                streaming_request=streaming_request,
+            )
+            return
 
         if not user_text:
             await self._emit_error(
@@ -155,6 +208,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                 context_id,
                 user_text,
                 preferred_session_id=bound_session_id,
+                directory=directory,
             )
 
             if streaming_request:
@@ -166,6 +220,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                         artifact_id=stream_artifact_id,
                         event_queue=event_queue,
                         stop_event=stop_event,
+                        directory=directory,
                     )
                 )
 
@@ -181,10 +236,13 @@ class OpencodeAgentExecutor(AgentExecutor):
                 response = await self._client.send_message(
                     session_id,
                     user_text,
+                    directory=directory,
                     timeout_override=self._client.stream_timeout,
                 )
             else:
-                response = await self._client.send_message(session_id, user_text)
+                response = await self._client.send_message(
+                    session_id, user_text, directory=directory
+                )
             response_text = response.text or "(No text content returned by OpenCode.)"
             logger.debug(
                 "OpenCode response task_id=%s session_id=%s message_id=%s text=%s",
@@ -317,6 +375,7 @@ class OpencodeAgentExecutor(AgentExecutor):
         title: str,
         *,
         preferred_session_id: str | None = None,
+        directory: str | None = None,
     ) -> str:
         # Caller explicitly bound the request to a known OpenCode session.
         if preferred_session_id:
@@ -344,7 +403,9 @@ class OpencodeAgentExecutor(AgentExecutor):
                 return existing
             task = self._inflight_session_creates.get(context_id)
             if task is None:
-                task = asyncio.create_task(self._client.create_session(title=title))
+                task = asyncio.create_task(
+                    self._client.create_session(title=title, directory=directory)
+                )
                 self._inflight_session_creates[context_id] = task
 
         try:
@@ -427,6 +488,7 @@ class OpencodeAgentExecutor(AgentExecutor):
         artifact_id: str,
         event_queue: EventQueue,
         stop_event: asyncio.Event,
+        directory: str | None = None,
     ) -> None:
         buffered_text = ""
         backoff = 0.5
@@ -435,7 +497,9 @@ class OpencodeAgentExecutor(AgentExecutor):
         try:
             while not stop_event.is_set():
                 try:
-                    async for event in self._client.stream_events(stop_event=stop_event):
+                    async for event in self._client.stream_events(
+                        stop_event=stop_event, directory=directory
+                    ):
                         if stop_event.is_set():
                             break
                         event_type = event.get("type")

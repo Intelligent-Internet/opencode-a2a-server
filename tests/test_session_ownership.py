@@ -1,22 +1,44 @@
 
 import pytest
 import asyncio
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, PropertyMock
 from opencode_a2a.agent import OpencodeAgentExecutor
+from opencode_a2a.config import Settings
+from opencode_a2a.opencode_client import OpencodeClient
 from a2a.server.agent_execution import RequestContext
 from a2a.server.context import ServerCallContext
 from a2a.server.events.event_queue import EventQueue
 
 @pytest.fixture
 def mock_client():
-    client = AsyncMock()
-    client.create_session.side_effect = ["session-1", "session-2", "session-3"]
+    client = AsyncMock(spec=OpencodeClient)
+    # Define sessions to return
+    sessions = ["session-1", "session-2", "session-3"]
+    current_idx = 0
+
+    async def side_effect(title=None, directory=None):
+        nonlocal current_idx
+        res = sessions[current_idx]
+        current_idx += 1
+        return res
+    
+    client.create_session.side_effect = side_effect
     # Mock response for send_message
     response = MagicMock()
     response.text = "OpenCode response"
     response.session_id = "session-1"
     response.message_id = "msg-1"
     client.send_message.return_value = response
+    
+    # Use PropertyMock for properties
+    type(client).directory = PropertyMock(return_value="/tmp/workspace")
+    type(client).settings = PropertyMock(return_value=Settings(
+        A2A_BEARER_TOKEN="test",
+        A2A_JWT_AUDIENCE="test",
+        A2A_JWT_ISSUER="test",
+        OPENCODE_BASE_URL="http://localhost",
+        A2A_ALLOW_DIRECTORY_OVERRIDE=True
+    ))
     return client
 
 @pytest.mark.asyncio
@@ -33,6 +55,7 @@ async def test_identity_isolation(mock_client):
     context1.get_user_input.return_value = "hello"
     context1.current_task = None
     context1.message = None
+    context1.metadata = None
     
     await executor.execute(context1, event_queue)
     mock_client.create_session.assert_called_once()
@@ -47,6 +70,7 @@ async def test_identity_isolation(mock_client):
     context2.get_user_input.return_value = "hello"
     context2.current_task = None
     context2.message = None
+    context2.metadata = None
     
     await executor.execute(context2, event_queue)
     # Should create a NEW session for user-2
@@ -69,6 +93,7 @@ async def test_session_hijack_prevention(mock_client):
     context1.get_user_input.return_value = "hello"
     context1.current_task = None
     context1.message = None
+    context1.metadata = None
     
     await executor.execute(context1, event_queue)
     assert executor._session_owners["session-1"] == "user-1"
