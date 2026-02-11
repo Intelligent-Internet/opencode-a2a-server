@@ -7,7 +7,7 @@
 - 具备 `sudo` 权限（写入 systemd unit、创建用户与目录）。
 - OpenCode 核心已安装在共享目录（默认 `/opt/.opencode`，如需改路径请修改 `scripts/init_system.sh` 顶部变量）。
 - 本仓库已部署在共享目录（默认 `/opt/opencode-a2a/opencode-a2a-serve`，如需改路径请修改 `scripts/init_system.sh` 顶部变量）。
-- A2A 的 venv 已准备好（默认 `${OPENCODE_A2A_DIR}/.venv/bin/opencode-a2a`）。
+- A2A 的 venv 已准备好（默认 `${OPENCODE_A2A_DIR}/.venv/bin/opencode-a2a-serve`）。
 - uv Python 池已准备好（默认 `/opt/uv-python`，如需改路径请修改 `scripts/init_system.sh` 顶部变量）。
 - systemd 可用。
 
@@ -29,7 +29,7 @@
 - 安装基础工具（`htop`、`vim`、`curl`、`wget`、`git`、`net-tools`、`lsblk`、`ca-certificates`）与 `gh`（添加官方源）。
 - 安装 Node.js ≥ 20（含 `npm`/`npx`，下载 NodeSource 安装脚本、校验后执行，或使用系统包）。
 - 安装 `uv`（若未安装，下载脚本校验后执行），并预下载 Python 版本 `3.10/3.11/3.12/3.13`（若缺失才安装）。
-- 创建共享目录（`/opt/.opencode`、`/opt/opencode-a2a`、`/opt/uv-python`、`/data/projects`），并为 `/opt/uv-python` 设置权限（默认先 `777`，预下载完成后递归调整为 `755`；可在 `scripts/init_system.sh` 顶部变量中调整）。
+- 创建共享目录（`/opt/.opencode`、`/opt/opencode-a2a`、`/opt/uv-python`、`/data/opencode-a2a`），并为 `/opt/uv-python` 设置权限（默认先 `777`，预下载完成后递归调整为 `755`；可在 `scripts/init_system.sh` 顶部变量中调整）。
 - 若系统缺少 systemd（`systemctl` 不存在），脚本将直接失败退出。
 - 克隆 `opencode-a2a-serve` 仓库到共享目录（若不存在，默认使用 SSH 地址）。
 - 创建 A2A venv（`uv sync --all-extras`）。
@@ -42,7 +42,7 @@
 
 ## 目录结构
 
-每个项目实例在 `DATA_ROOT` 下有独立目录（默认 `/data/projects/<project>`）：
+每个项目实例在 `DATA_ROOT` 下有独立目录（默认 `/data/opencode-a2a/<project>`）：
 
 - `workspace/`：OpenCode 仅能写入的工作区
 - `config/`：root-only 的配置目录，存放 env 文件
@@ -68,58 +68,9 @@ HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：
 ./scripts/deploy.sh project=alpha github_token=ghp_xxx a2a_jwt_secret_b64="$(base64 -w0 jwt_public.pem)" a2a_jwt_issuer=compass a2a_jwt_audience=opencode-a2a:alpha a2a_port=8010 a2a_host=127.0.0.1 a2a_public_url=https://a2a.example.com
 ```
 
-支持的 key（不区分大小写；均为 `./scripts/deploy.sh` 的 `key=value` 参数）：
+支持的 key（不区分大小写）：`project`/`project_name`、`github_token`/`gh_token`、`a2a_jwt_secret_b64`、`a2a_jwt_secret_file`、`a2a_jwt_secret`、`a2a_jwt_algorithm`、`a2a_jwt_issuer`、`a2a_jwt_audience`、`a2a_jwt_scope_match`、`a2a_port`、`a2a_host`、`a2a_public_url`、`opencode_provider_id`、`opencode_model_id`、`repo_url`、`repo_branch`、`opencode_timeout`、`opencode_timeout_stream`、`git_identity_name`、`git_identity_email`、`google_generative_ai_api_key`（可用 `google_api_key` 作为别名）、`update_a2a`、`force_restart`。
 
-必填：
-- `project`/`project_name`：实例名（将映射为 Linux 用户/目录名），建议使用 `[a-z0-9_-]+`（例如 `project=alpha`）
-- `github_token`/`gh_token`：用于私有仓库访问与 `gh` 的 token（建议 Fine-grained PAT，例如 `github_token=ghp_xxx`）
-- `a2a_jwt_issuer`：JWT `iss`（例如 `a2a_jwt_issuer=compass` 或 `a2a_jwt_issuer=https://compass.example.com`）
-- `a2a_jwt_audience`：JWT `aud`（建议按实例隔离，例如 `a2a_jwt_audience=opencode-a2a:alpha`）
-
-JWT 验签公钥（必填）：必须且只能提供以下三者之一（推荐顺序从上到下）：
-- `a2a_jwt_secret_b64`：base64(公钥 PEM) 单行值（推荐；避免 systemd `EnvironmentFile` 多行问题，例如 `a2a_jwt_secret_b64=\"$(base64 -w0 jwt_public.pem)\"`）
-- `a2a_jwt_secret_file`：公钥 PEM 文件路径（适合本地/手工部署调试；要求运行时对服务用户可读；建议该文件由 `root` 持有且不可写，例如 `-o root -g root -m 0644`，避免被实例用户篡改；示例 `a2a_jwt_secret_file=/data/projects/alpha/config/jwt_public.pem`）
-- `a2a_jwt_secret`：公钥 PEM（单行；不推荐生产使用；若包含换行，deploy 脚本会尝试自动转成 `a2a_jwt_secret_b64`）
-
-可选（鉴权相关）：
-- `a2a_jwt_algorithm`：JWT 算法，默认 `RS256`；仅支持 `RS256/RS384/RS512/ES256/ES384/ES512`（服务端会拒绝 `HS*` 等对称算法）
-- `a2a_jwt_scope_match`：scope 匹配规则，`any|all`，默认 `any`（仅在配置了 `A2A_REQUIRED_SCOPES` 时生效）
-
-可选（网络与路由）：
-- `a2a_port`：A2A 端口（例如 `a2a_port=8010`；多实例时每个实例需使用不同端口）
-- `a2a_host`：A2A 监听地址（例如 `a2a_host=127.0.0.1`；若需要对外暴露可用 `0.0.0.0` 并配合反向代理）
-- `a2a_public_url`：对外访问 URL（例如 `a2a_public_url=https://a2a.example.com`）
-
-可选（OpenCode 与仓库初始化）：
-- `opencode_provider_id`：写入实例配置用于默认 provider（例如 `opencode_provider_id=google`）
-- `opencode_model_id`：写入实例配置用于默认 model（例如 `opencode_model_id=gemini-3-flash-preview`）
-- `repo_url`：首次部署时自动 clone 的仓库 URL（例如 `repo_url=https://github.com/org/repo.git`）
-- `repo_branch`：配合 `repo_url` 指定分支（例如 `repo_branch=main`）
-
-可选（超时）：
-- `opencode_timeout`：OpenCode 请求超时秒数（例如 `opencode_timeout=300`）
-- `opencode_timeout_stream`：OpenCode streaming 超时秒数（例如 `opencode_timeout_stream=600`）
-
-可选（Git 身份覆盖）：
-- `git_identity_name`：覆盖 Git author/committer name（例如 `git_identity_name=OpenCode-alpha`）
-- `git_identity_email`：覆盖 Git author/committer email（例如 `git_identity_email=alpha@internal`）
-
-可选（Gemini key 注入）：
-- `google_generative_ai_api_key`（可用 `google_api_key` 作为别名）
-
-可选（运维）：
-- `update_a2a`：更新共享代码后再部署（例如 `update_a2a=true`）
-- `force_restart`：强制重启 systemd 服务（例如 `force_restart=true`）
-
-示例：生成 `a2a_jwt_secret_b64`
-
-```bash
-# GNU coreutils (Linux)
-base64 -w0 jwt_public.pem
-
-# macOS / BusyBox 通用写法
-base64 < jwt_public.pem | tr -d '\n'
-```
+> `a2a_jwt_secret_b64` / `a2a_jwt_secret_file` / `a2a_jwt_secret` 必须三选一；建议优先使用 `a2a_jwt_secret_b64`（便于写入 `EnvironmentFile`）。
 
 > `github_token` **必须使用项目专属的 Fine-grained personal access token**，并严格限制权限范围（**不得跨仓授权**，仅授予该项目仓库所需的最小读写权限）。
 
@@ -165,12 +116,14 @@ base64 < jwt_public.pem | tr -d '\n'
 - `A2A_LOG_BODY_LIMIT`：日志正文最大长度，默认 `0`（不截断）
 
 > 共享路径（`OPENCODE_A2A_DIR`/`OPENCODE_CORE_DIR`/`UV_PYTHON_DIR`/`DATA_ROOT`）默认从 `scripts/init_system.sh` 顶部变量读取；`deploy.sh` 仍支持环境变量覆盖（需确保与实际目录一致）。
+>
+> 注意：`DATA_ROOT` 需要对每个项目系统用户可遍历（至少包含 `o+x`），否则 OpenCode 无法写入 `$HOME/.cache` / `$HOME/.local`，将导致 `/session` 500（EACCES）。
 - `A2A_PUBLIC_URL` 仅通过 `deploy.sh` 的 `a2a_public_url=...` 参数设置；未提供时自动拼接为 `http://<A2A_HOST>:<A2A_PORT>`。
 - `A2A_STREAMING`：是否启用 SSE streaming（`/v1/message:stream`），默认 `true`
 
 ### 实例配置文件
 
-每个项目会生成（路径位于 `/data/projects/<project>/config/`，不同项目不会重名）：
+每个项目会生成（路径位于 `/data/opencode-a2a/<project>/config/`，不同项目不会重名）：
 
 - `config/opencode.env`：仅 OpenCode 读取（包含 `GH_TOKEN` 与 Git 身份配置）
 - `config/opencode.secret.env`：仅 OpenCode 读取的敏感配置（可选，包含 `GOOGLE_GENERATIVE_AI_API_KEY`）
@@ -182,7 +135,7 @@ base64 < jwt_public.pem | tr -d '\n'
 
 为保障私有仓库访问，`github_token` 会写入 `config/opencode.env`，并结合 `GIT_ASKPASS` 注入到 OpenCode 进程中使用。该文件权限为 600（root-only）。
 
-部署脚本会为项目用户执行 `gh auth login --with-token`，写入 `/data/projects/<project>/.config/gh/hosts.yml`（权限 600，项目用户私有），确保 OpenCode 调用 `gh` 时可用。
+部署脚本会为项目用户执行 `gh auth login --with-token`，写入 `${DATA_ROOT}/<project>/.config/gh/hosts.yml`（权限 600，项目用户私有），确保 OpenCode 调用 `gh` 时可用。
 
 如需使用 `gh` CLI，服务默认将 `PATH` 包含 `/usr/bin`，并显式允许读取 `/usr/bin/gh`。若 `gh` 安装在其他路径，可通过软链接放入 `${OPENCODE_CORE_DIR}/bin`。
 
@@ -281,12 +234,16 @@ sudo systemctl stop opencode@<project>.service
 
 systemd 单元已启用：
 
-- `ProtectSystem=strict`
-- `ReadWritePaths=/data/projects/%i`
-- `PrivateTmp=true`
-- `NoNewPrivileges=true`
+- `ProtectSystem=strict`：整个系统根目录只读。
+- `ReadWritePaths=${DATA_ROOT}/%i`：仅允许读写当前项目自己的目录。
+- `PrivateTmp=true`：独立的 `/tmp` 空间，防止跨项目临时文件泄露。
+- `NoNewPrivileges=true`：禁止进程及其子进程获得新权限。
 
-OpenCode 与 A2A 分离运行：JWT 校验相关配置仅注入 A2A，`GH_TOKEN`/Git 凭证仅注入 OpenCode，避免跨进程继承。
+应用级加固：
+
+- **目录边界校验**：A2A 会对请求中的 `directory` 参数执行 `realpath` 归一化，并校验其是否在项目 workspace 范围内。
+- **会话权属校验**：基于身份（Identity）的会话隔离，防止劫持他人会话。
+- **凭证分离**：OpenCode 与 A2A 分离运行，`A2A_JWT_*` 仅注入 A2A，`GH_TOKEN`/Git 凭证仅注入 OpenCode，避免跨进程继承。
 
 关键风险与适用范围：
 

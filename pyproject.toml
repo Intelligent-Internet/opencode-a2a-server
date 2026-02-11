@@ -1,5 +1,5 @@
 [project]
-name = "opencode-a2a"
+name = "opencode-a2a-serve"
 version = "0.1.0"
 description = "A2A wrapper service for opencode"
 readme = "README.md"
@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.110",
     "httpx>=0.27",
     "pydantic>=2.6",
+    "pydantic-settings>=2.2",
     "sse-starlette>=2.1",
     "uvicorn>=0.29",
     "PyJWT[crypto]>=2.8.0",
@@ -23,7 +24,7 @@ dev = [
 ]
 
 [project.scripts]
-opencode-a2a = "opencode_a2a.app:main"
+opencode-a2a-serve = "opencode_a2a.app:main"
 
 [tool.ruff]
 line-length = 100
@@ -40,7 +41,7 @@ package = true
 
 [tool.pytest.ini_options]
 filterwarnings = [
-    "ignore:'HTTP_413_REQUEST_ENTITY_TOO_LARGE' is deprecated\\. Use 'HTTP_413_CONTENT_TOO_LARGE' instead\\.:DeprecationWarning:a2a\\.server\\.apps\\.jsonrpc\\.fastapi_app",
+    "ignore:'HTTP_413_REQUEST_ENTITY_TOO_LARGE' is deprecated. Use 'HTTP_413_CONTENT_TOO_LARGE' instead.:DeprecationWarning:a2a\\.server\\.apps\\.jsonrpc\\.fastapi_app",
 ]
 
 [dependency-groups]

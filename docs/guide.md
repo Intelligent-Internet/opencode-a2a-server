@@ -33,6 +33,10 @@
 - `A2A_LOG_LEVEL`：A2A 服务日志级别（`DEBUG/INFO/WARNING/ERROR`），默认 `INFO`
 - `A2A_LOG_PAYLOADS`：是否记录 A2A 与 OpenCode 的请求/响应正文，默认 `false`
 - `A2A_LOG_BODY_LIMIT`：日志正文最大长度，默认 `0`（不截断）
+- `A2A_DOCUMENTATION_URL`：可选；用于在 Agent Card 的 `documentationUrl` 字段中暴露文档地址（建议指向本仓库或内部文档站点）
+- `A2A_SESSION_CACHE_TTL_SECONDS`：`(identity, contextId) -> OpenCode session_id` 的内存缓存 TTL（秒），默认 `3600`
+- `A2A_SESSION_CACHE_MAXSIZE`：会话映射缓存最大条数，默认 `10000`
+
 （已移除未实现的 OAuth2 预留配置；本服务仅做 JWT 验签与可选 scope 校验。）
 
 ## 服务行为说明
@@ -41,8 +45,88 @@
 - 任务状态默认返回 `input-required`，便于继续多轮对话。
 - Streaming（`/v1/message:stream`）会输出 `TaskArtifactUpdateEvent` 增量（`append=true`），结束时发送 `TaskStatusUpdateEvent(final=true)`；完整内容由 artifact 承载，非 streaming 调用仍返回 `Task`。
 - 需在请求中携带 `Authorization: Bearer <token>`，否则返回 401（Agent Card 不受鉴权限制）。
+- **错误处理与反馈**：
+  - 输入校验失败、上下文缺失（缺失 `task_id` 或 `context_id`）或内部处理异常时，服务会尽可能通过 `event_queue` 返回标准 A2A 失败事件。
+  - 失败事件将包含具体的错误信息，并根据请求类型返回 `failed` 状态。
+  - 这确保了调用方能够接收到明确的反馈，避免因未捕获异常导致的挂起或难以诊断的问题。
+- **目录校验与归一化**：
+  - 支持通过请求 `metadata.directory` 指定工作目录，但该路径必须落在 `${OPENCODE_DIRECTORY}`（或服务运行根目录）之内。
+  - 所有路径均会经过 `realpath` 归一化处理，防止通过 `..` 或符号链接绕过边界。
+  - 若 `A2A_ALLOW_DIRECTORY_OVERRIDE` 设置为 `false`（默认开启），则仅允许使用默认工作目录，任何不同的路径请求将被拒绝。
+  - 校验失败将通过事件队列反馈 `failed` 状态及错误说明。
 - 支持 JWT 无状态鉴权：会校验签名算法（仅非对称）、签发者（issuer，必填）、受众（audience，必填）、过期时间（exp，必填），并可选校验 Scopes（scope/scp，字符串或数组）。
 本服务不会在 Agent Card 中声明 OAuth2 scheme，以避免客户端误判。
+
+## 续聊契约（绑定到历史 OpenCode session）
+
+当下游希望“选择一个历史 OpenCode session 后继续对话”时，应在每次 invoke 的请求 `metadata` 中显式传入：
+
+- `metadata.opencode_session_id`: 目标 OpenCode session id（例如 `ses_xxx`）
+
+服务端行为：
+
+- 若提供 `metadata.opencode_session_id`：优先发送消息到该 session（不新建 session）。
+- 若未提供：服务端会创建新 session，并在内存中缓存 `(identity, contextId) -> session_id`（带 TTL 与最大容量限制）。
+
+最小 curl 示例：
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/message:send \
+  -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <your-token>' \
+  -d '{
+    "message": {
+      "messageId": "msg-continue-1",
+      "role": "ROLE_USER",
+      "content": [{"text": "继续刚才的对话：请把上次的结论再总结一下"}]
+    },
+    "metadata": {
+      "opencode_session_id": "<session_id>"
+    }
+  }'
+```
+
+## OpenCode 会话查询（A2A Extension）
+
+本服务通过 A2A Extension 的方式暴露“OpenCode 会话列表/历史消息查询”能力，不额外提供自定义 REST 端点。
+
+- 触发方式：通过 **A2A JSON-RPC**（默认 `POST /`）调用扩展方法。
+- 鉴权：复用同一个 `Authorization: Bearer <token>`。
+- 安全：即使开启 `A2A_LOG_PAYLOADS=true`，当检测到 `method=opencode.sessions.*` 的 JSON-RPC 请求时，服务也不会将请求/响应 body 写入日志（避免泄露聊天历史）。
+- 调用 URL：建议从 Agent Card 的 `additional_interfaces[]` 中选择 `transport=jsonrpc` 的 `url`，避免自行拼接推导。
+- 返回格式：`result.items` 始终为数组，且 item 为 A2A 标准对象（会话列表为 Task，且 `status.state=completed`；消息历史为 Message）。OpenCode 原始 item 放在 `metadata.opencode.raw`；会话标题可直接读取 `metadata.opencode.title`（无标题时为占位值 `Untitled session`）。
+
+### 会话列表（method: opencode.sessions.list）
+
+```bash
+curl -sS http://127.0.0.1:8000/ \
+  -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <your-token>' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "opencode.sessions.list",
+    "params": {"page": 1, "size": 20}
+  }'
+```
+
+### 会话消息历史（method: opencode.sessions.messages.list）
+
+```bash
+curl -sS http://127.0.0.1:8000/ \
+  -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <your-token>' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "opencode.sessions.messages.list",
+    "params": {
+      "session_id": "<session_id>",
+      "page": 1,
+      "size": 50
+    }
+  }'
+```
 
 ## 鉴权示例（curl）
 
@@ -52,9 +136,9 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
   -H 'Authorization: Bearer <your-token>' \
   -d '{
     "message": {
-      "message_id": "msg-1",
-      "role": "user",
-      "parts": [{"kind": "text", "text": "你好，介绍下这个仓库"}]
+      "messageId": "msg-1",
+      "role": "ROLE_USER",
+      "content": [{"text": "你好，介绍下这个仓库"}]
     }
   }'
 ```
@@ -90,7 +174,7 @@ export A2A_JWT_ALGORITHM=RS256
 export A2A_JWT_ISSUER=my-issuer
 export A2A_JWT_AUDIENCE=my-audience
 
-./.venv/bin/opencode-a2a
+./.venv/bin/opencode-a2a-serve
 ```
 
 3) 用私钥签发一个短期 token（`exp` 必填；可选 `scope`）：
