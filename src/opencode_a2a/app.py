@@ -50,7 +50,7 @@ SESSION_QUERY_METHODS = {
 SESSION_BINDING_EXTENSION_URI = "urn:opencode-a2a:opencode-session-binding/v1"
 
 
-class StreamingCallContextBuilder(DefaultCallContextBuilder):
+class IdentityAwareCallContextBuilder(DefaultCallContextBuilder):
     def build(self, request: Request) -> ServerCallContext:
         context = super().build(request)
         path = request.url.path
@@ -66,6 +66,11 @@ class StreamingCallContextBuilder(DefaultCallContextBuilder):
         )
         if is_stream:
             context.state["a2a_streaming_request"] = True
+
+        identity = getattr(request.state, "user_identity", None)
+        if identity:
+            context.state["identity"] = identity
+
         return context
 
 
@@ -132,7 +137,8 @@ def build_agent_card(settings: Settings) -> AgentCard:
                             ),
                             (
                                 "Otherwise, the server will create a new OpenCode session and "
-                                "cache the contextId->session_id mapping in memory with TTL."
+                                "cache the (identity, contextId)->session_id mapping in memory "
+                                "with TTL."
                             ),
                         ],
                     },
@@ -212,8 +218,6 @@ def build_agent_card(settings: Settings) -> AgentCard:
 
 def add_auth_middleware(app: FastAPI, settings: Settings) -> None:
     token = settings.a2a_bearer_token
-    if not token:
-        raise RuntimeError("A2A_BEARER_TOKEN must be set to start the server.")
 
     @app.middleware("http")
     async def bearer_auth(request: Request, call_next):
@@ -237,6 +241,7 @@ def add_auth_middleware(app: FastAPI, settings: Settings) -> None:
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
             )
+
         return await call_next(request)
 
 
@@ -265,7 +270,7 @@ def create_app(settings: Settings) -> FastAPI:
     app = OpencodeSessionQueryJSONRPCApplication(
         agent_card=agent_card,
         http_handler=handler,
-        context_builder=DefaultCallContextBuilder(),
+        context_builder=IdentityAwareCallContextBuilder(),
         opencode_client=client,
         methods=SESSION_QUERY_METHODS,
     ).build(title=settings.a2a_title, version=settings.a2a_version, lifespan=lifespan)
@@ -273,7 +278,7 @@ def create_app(settings: Settings) -> FastAPI:
     rest_adapter = RESTAdapter(
         agent_card=agent_card,
         http_handler=handler,
-        context_builder=StreamingCallContextBuilder(),
+        context_builder=IdentityAwareCallContextBuilder(),
     )
     for route, callback in rest_adapter.routes().items():
         app.add_api_route(route[0], callback, methods=[route[1]])

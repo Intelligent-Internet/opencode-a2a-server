@@ -31,7 +31,7 @@
 - `A2A_OAUTH_TOKEN_URL`：OAuth2 token 地址（预留配置）
 - `A2A_OAUTH_METADATA_URL`：OAuth2 元数据地址（可选，预留配置）
 - `A2A_OAUTH_SCOPES`：OAuth2 scopes，逗号分隔（预留配置）
-- `A2A_SESSION_CACHE_TTL_SECONDS`：`contextId -> OpenCode session_id` 的内存缓存 TTL（秒），默认 `3600`
+- `A2A_SESSION_CACHE_TTL_SECONDS`：`(identity, contextId) -> OpenCode session_id` 的内存缓存 TTL（秒），默认 `3600`
 - `A2A_SESSION_CACHE_MAXSIZE`：会话映射缓存最大条数，默认 `10000`
 
 ## 服务行为说明
@@ -40,7 +40,17 @@
 - 任务状态默认返回 `input-required`，便于继续多轮对话。
 - Streaming（`/v1/message:stream`）会输出 `TaskArtifactUpdateEvent` 增量（`append=true`），结束时发送 `TaskStatusUpdateEvent(final=true)`；完整内容由 artifact 承载，非 streaming 调用仍返回 `Task`。
 - 需在请求中携带 `Authorization: Bearer <token>`，否则返回 401（Agent Card 不受鉴权限制）。
+- **错误处理与反馈**：
+  - 输入校验失败、上下文缺失（缺失 `task_id` 或 `context_id`）或内部处理异常时，服务会尽可能通过 `event_queue` 返回标准 A2A 失败事件。
+  - 失败事件将包含具体的错误信息，并根据请求类型返回 `failed` 状态。
+  - 这确保了调用方能够接收到明确的反馈，避免因未捕获异常导致的挂起或难以诊断的问题。
+- **目录校验与归一化**：
+  - 支持通过请求 `metadata.directory` 指定工作目录，但该路径必须落在 `${OPENCODE_DIRECTORY}`（或服务运行根目录）之内。
+  - 所有路径均会经过 `realpath` 归一化处理，防止通过 `..` 或符号链接绕过边界。
+  - 若 `A2A_ALLOW_DIRECTORY_OVERRIDE` 设置为 `false`（默认开启），则仅允许使用默认工作目录，任何不同的路径请求将被拒绝。
+  - 校验失败将通过事件队列反馈 `failed` 状态及错误说明。
 - OAuth2 相关配置目前仅用于 Agent Card 声明，鉴权校验需后续接入。
+- 仅当同时设置 `A2A_OAUTH_AUTHORIZATION_URL` 与 `A2A_OAUTH_TOKEN_URL` 时，Agent Card 才会声明 OAuth2 scheme。
 
 ## 续聊契约（绑定到历史 OpenCode session）
 
@@ -51,7 +61,7 @@
 服务端行为：
 
 - 若提供 `metadata.opencode_session_id`：优先发送消息到该 session（不新建 session）。
-- 若未提供：服务端会创建新 session，并在内存中缓存 `contextId -> session_id`（带 TTL 与最大容量限制）。
+- 若未提供：服务端会创建新 session，并在内存中缓存 `(identity, contextId) -> session_id`（带 TTL 与最大容量限制）。
 
 最小 curl 示例：
 

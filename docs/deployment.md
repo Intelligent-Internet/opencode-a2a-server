@@ -230,12 +230,16 @@ sudo systemctl stop opencode@<project>.service
 
 systemd 单元已启用：
 
-- `ProtectSystem=strict`
-- `ReadWritePaths=${DATA_ROOT}/%i`
-- `PrivateTmp=true`
-- `NoNewPrivileges=true`
+- `ProtectSystem=strict`：整个系统根目录只读。
+- `ReadWritePaths=${DATA_ROOT}/%i`：仅允许读写当前项目自己的目录。
+- `PrivateTmp=true`：独立的 `/tmp` 空间，防止跨项目临时文件泄露。
+- `NoNewPrivileges=true`：禁止进程及其子进程获得新权限。
 
-OpenCode 与 A2A 分离运行：`A2A_BEARER_TOKEN` 仅注入 A2A，`GH_TOKEN`/Git 凭证仅注入 OpenCode，避免跨进程继承。
+应用级加固：
+
+- **目录边界校验**：A2A 会对请求中的 `directory` 参数执行 `realpath` 归一化，并校验其是否在项目 workspace 范围内。
+- **会话权属校验**：基于身份（Identity）的会话隔离，防止劫持他人会话。
+- **凭证分离**：OpenCode 与 A2A 分离运行，`A2A_BEARER_TOKEN` 仅注入 A2A，`GH_TOKEN`/Git 凭证仅注入 OpenCode，避免跨进程继承。
 
 关键风险与适用范围：
 

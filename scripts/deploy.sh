@@ -166,6 +166,7 @@ if [[ -n "$A2A_PUBLIC_URL_INPUT" ]]; then
 else
   export A2A_PUBLIC_URL="http://${A2A_HOST}:${A2A_PORT}"
 fi
+
 export A2A_LOG_LEVEL="${A2A_LOG_LEVEL:-DEBUG}"
 export A2A_STREAMING="${A2A_STREAMING:-true}"
 export A2A_LOG_PAYLOADS="${A2A_LOG_PAYLOADS:-true}"

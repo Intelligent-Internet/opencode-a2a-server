@@ -25,13 +25,25 @@ class DummyOpencodeClient:
         self.created_sessions = 0
         self.sent_session_ids: list[str] = []
         self.stream_timeout = None
+        self.directory = None
+        from opencode_a2a.config import Settings
 
-    async def create_session(self, title: str | None = None) -> str:
+        self.settings = Settings(
+            A2A_BEARER_TOKEN="test",
+            OPENCODE_BASE_URL="http://localhost",
+        )
+
+    async def create_session(
+        self,
+        title: str | None = None,
+        *,
+        directory: str | None = None,
+    ) -> str:
         self.created_sessions += 1
         return f"ses-created-{self.created_sessions}"
 
     async def send_message(
-        self, session_id: str, text: str, *, timeout_override=None
+        self, session_id: str, text: str, *, directory: str | None = None, timeout_override=None
     ) -> OpencodeMessage:  # noqa: ANN001
         self.sent_session_ids.append(session_id)
         return OpencodeMessage(
@@ -41,7 +53,7 @@ class DummyOpencodeClient:
             raw={},
         )
 
-    async def stream_events(self, stop_event=None):  # noqa: ANN001
+    async def stream_events(self, stop_event=None, *, directory: str | None = None):  # noqa: ANN001
         if False:
             yield {}
 
@@ -108,9 +120,14 @@ async def test_agent_caches_bound_session_id_for_followup_requests() -> None:
 @pytest.mark.asyncio
 async def test_agent_dedupes_concurrent_session_creates_per_context() -> None:
     class SlowCreateClient(DummyOpencodeClient):
-        async def create_session(self, title: str | None = None) -> str:
+        async def create_session(
+            self,
+            title: str | None = None,
+            *,
+            directory: str | None = None,
+        ) -> str:
             await asyncio.sleep(0.05)
-            return await super().create_session(title=title)
+            return await super().create_session(title=title, directory=directory)
 
     client = SlowCreateClient()
     executor = OpencodeAgentExecutor(

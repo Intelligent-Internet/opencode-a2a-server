@@ -7,7 +7,7 @@
 
 它本质上是一个“协议桥接”与“安全边界收口”：将 A2A 的 message/task 语义转发到 OpenCode 的 session/message/event 接口，并补齐鉴权、可观测与续聊契约。
 
-> 重要：服务启动 **必须** 设置 `A2A_BEARER_TOKEN`，否则会拒绝启动（见 `docs/guide.md`）。
+> 重要：服务启动 **必须** 设置 `A2A_BEARER_TOKEN`（见 `docs/guide.md`）。
 
 ## 安全边界（必须阅读）
 
@@ -76,7 +76,7 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
 - `A2A_BEARER_TOKEN`：必填；用于 Bearer Token 校验
 - `A2A_PUBLIC_URL`：对外可访问的 A2A 地址前缀（用于 Agent Card 的 `url`/interfaces；反代/域名场景建议设置）
 - `A2A_STREAMING`：是否启用 SSE streaming（默认 `true`）
-- `A2A_SESSION_CACHE_TTL_SECONDS` / `A2A_SESSION_CACHE_MAXSIZE`：`contextId -> session_id` 内存映射缓存配置（用于未显式绑定 session 的续聊）
+- `A2A_SESSION_CACHE_TTL_SECONDS` / `A2A_SESSION_CACHE_MAXSIZE`：`(identity, contextId) -> session_id` 内存映射缓存配置（用于未显式绑定 session 的续聊）
 
 ## 续聊契约（绑定到历史 OpenCode session）
 
@@ -87,7 +87,7 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
 服务端行为：
 
 - 若提供 `metadata.opencode_session_id`：优先发送消息到该 session（不新建 session）。
-- 若未提供：服务端会创建新 session，并在内存中缓存 `contextId -> session_id`（带 TTL 与最大容量限制）。
+- 若未提供：服务端会创建新 session，并在内存中缓存 `(identity, contextId) -> session_id`（带 TTL 与最大容量限制）。
 
 最小 curl 示例：
 
