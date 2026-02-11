@@ -37,8 +37,6 @@ def mock_client():
     type(client).settings = PropertyMock(
         return_value=Settings(
             A2A_BEARER_TOKEN="test",
-            A2A_JWT_AUDIENCE="test",
-            A2A_JWT_ISSUER="test",
             OPENCODE_BASE_URL="http://localhost",
             A2A_ALLOW_DIRECTORY_OVERRIDE=True,
         )
@@ -165,8 +163,6 @@ async def test_concurrent_session_create_isolated_by_identity():
     type(client).settings = PropertyMock(
         return_value=Settings(
             A2A_BEARER_TOKEN="test",
-            A2A_JWT_AUDIENCE="test",
-            A2A_JWT_ISSUER="test",
             OPENCODE_BASE_URL="http://localhost",
             A2A_ALLOW_DIRECTORY_OVERRIDE=True,
         )
@@ -271,8 +267,6 @@ async def test_preferred_session_claim_is_released_on_upstream_failure():
     type(client).settings = PropertyMock(
         return_value=Settings(
             A2A_BEARER_TOKEN="test",
-            A2A_JWT_AUDIENCE="test",
-            A2A_JWT_ISSUER="test",
             OPENCODE_BASE_URL="http://localhost",
             A2A_ALLOW_DIRECTORY_OVERRIDE=True,
         )
@@ -315,8 +309,6 @@ async def test_preferred_session_claim_is_released_on_upstream_cancellation():
     type(client).settings = PropertyMock(
         return_value=Settings(
             A2A_BEARER_TOKEN="test",
-            A2A_JWT_AUDIENCE="test",
-            A2A_JWT_ISSUER="test",
             OPENCODE_BASE_URL="http://localhost",
             A2A_ALLOW_DIRECTORY_OVERRIDE=True,
         )

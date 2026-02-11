@@ -4,7 +4,6 @@ import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from hashlib import sha256
 from typing import TYPE_CHECKING
 
 import uvicorn
@@ -49,11 +48,6 @@ SESSION_QUERY_METHODS = {
 }
 
 SESSION_BINDING_EXTENSION_URI = "urn:opencode-a2a:opencode-session-binding/v1"
-
-
-def _token_fingerprint(token: str) -> str:
-    digest = sha256(token.encode("utf-8")).hexdigest()
-    return digest[:16]
 
 
 class IdentityAwareCallContextBuilder(DefaultCallContextBuilder):
@@ -248,9 +242,6 @@ def add_auth_middleware(app: FastAPI, settings: Settings) -> None:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Identity for session ownership checks.
-        # Current auth is opaque bearer token, so we derive a stable non-reversible fingerprint.
-        request.state.user_identity = f"opaque:{_token_fingerprint(provided)}"
         return await call_next(request)
 
 

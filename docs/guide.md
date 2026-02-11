@@ -21,11 +21,7 @@
 - `A2A_PROTOCOL_VERSION`：A2A 协议版本，默认 `0.3.0`
 - `A2A_HOST`：监听地址，默认 `127.0.0.1`
 - `A2A_PORT`：监听端口，默认 `8000`
-- `A2A_BEARER_TOKEN`：必填；用于 Bearer Token 校验
-- `A2A_JWT_ALGORITHM`：JWT 算法，默认 `RS256`（仅允许非对称算法）
-- `A2A_JWT_AUDIENCE`：必填；JWT audience
-- `A2A_JWT_ISSUER`：必填；JWT issuer
-- `A2A_JWT_SCOPE_MATCH`：scope 匹配策略，`any|all`，默认 `any`
+- `A2A_BEARER_TOKEN`：必填；用于 Bearer Token 校验，未设置则服务拒绝启动
 - `A2A_STREAMING`：是否启用 SSE streaming（`/v1/message:stream`），默认 `true`
 - `A2A_LOG_LEVEL`：A2A 服务日志级别（`DEBUG/INFO/WARNING/ERROR`），默认 `INFO`
 - `A2A_LOG_PAYLOADS`：是否记录 A2A 与 OpenCode 的请求/响应正文，默认 `false`

@@ -30,8 +30,6 @@ class DummyOpencodeClient:
 
         self.settings = Settings(
             A2A_BEARER_TOKEN="test",
-            A2A_JWT_AUDIENCE="test",
-            A2A_JWT_ISSUER="test",
             OPENCODE_BASE_URL="http://localhost",
         )
 

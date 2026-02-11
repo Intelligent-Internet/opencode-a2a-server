@@ -44,12 +44,6 @@ class Settings(BaseSettings):
     a2a_port: int = Field(default=8000, alias="A2A_PORT")
     a2a_bearer_token: str = Field(..., min_length=1, alias="A2A_BEARER_TOKEN")
 
-    # JWT settings (Issue #39)
-    a2a_jwt_algorithm: str = Field(default="RS256", alias="A2A_JWT_ALGORITHM")
-    a2a_jwt_audience: str = Field(..., min_length=1, alias="A2A_JWT_AUDIENCE")
-    a2a_jwt_issuer: str = Field(..., min_length=1, alias="A2A_JWT_ISSUER")
-    a2a_jwt_scope_match: str = Field(default="any", alias="A2A_JWT_SCOPE_MATCH")
-
     # OAuth2 settings
     a2a_oauth_authorization_url: str | None = Field(
         default=None, alias="A2A_OAUTH_AUTHORIZATION_URL"
@@ -61,21 +55,6 @@ class Settings(BaseSettings):
     # Session cache settings
     a2a_session_cache_ttl_seconds: int = Field(default=3600, alias="A2A_SESSION_CACHE_TTL_SECONDS")
     a2a_session_cache_maxsize: int = Field(default=10_000, alias="A2A_SESSION_CACHE_MAXSIZE")
-
-    @field_validator("a2a_jwt_algorithm")
-    @classmethod
-    def validate_algo(cls, v: str) -> str:
-        allowed = {"RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512"}
-        if v.upper() not in allowed:
-            raise ValueError(f"Only asymmetric algorithms are supported: {allowed}")
-        return v.upper()
-
-    @field_validator("a2a_jwt_scope_match")
-    @classmethod
-    def validate_scope_match(cls, v: str) -> str:
-        if v.lower() not in {"any", "all"}:
-            raise ValueError("A2A_JWT_SCOPE_MATCH must be 'any' or 'all'")
-        return v.lower()
 
     @field_validator("a2a_oauth_scopes", mode="before")
     @classmethod

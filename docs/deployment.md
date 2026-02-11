@@ -66,7 +66,7 @@ HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：
 ./scripts/deploy.sh project=alpha github_token=ghp_xxx a2a_bearer_token=a2a_xxx a2a_port=8010 a2a_host=127.0.0.1 a2a_public_url=https://a2a.example.com
 ```
 
-支持的 key（不区分大小写）：`project`/`project_name`、`github_token`/`gh_token`、`a2a_bearer_token`、`a2a_port`、`a2a_host`、`a2a_public_url`、`a2a_jwt_audience`、`a2a_jwt_issuer`、`a2a_jwt_algorithm`、`a2a_jwt_scope_match`、`opencode_provider_id`、`opencode_model_id`、`repo_url`、`repo_branch`、`opencode_timeout`、`opencode_timeout_stream`、`git_identity_name`、`git_identity_email`、`google_generative_ai_api_key`（可用 `google_api_key` 作为别名）、`update_a2a`、`force_restart`。
+支持的 key（不区分大小写）：`project`/`project_name`、`github_token`/`gh_token`、`a2a_bearer_token`、`a2a_port`、`a2a_host`、`a2a_public_url`、`opencode_provider_id`、`opencode_model_id`、`repo_url`、`repo_branch`、`opencode_timeout`、`opencode_timeout_stream`、`git_identity_name`、`git_identity_email`、`google_generative_ai_api_key`（可用 `google_api_key` 作为别名）、`update_a2a`、`force_restart`。
 
 > `github_token` **必须使用项目专属的 Fine-grained personal access token**，并严格限制权限范围（**不得跨仓授权**，仅授予该项目仓库所需的最小读写权限）。
 
@@ -107,10 +107,6 @@ HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：
 
 - `A2A_HOST`：A2A 监听地址，默认 `127.0.0.1`（也可通过 `deploy.sh` 的 `a2a_host=...` 参数设置）
 - `A2A_PORT`：A2A 监听端口，默认 `8000`（多实例时需为每个项目分配不同端口）
-- `A2A_JWT_AUDIENCE`：JWT audience；必须显式设置（可通过 `deploy.sh` 参数 `a2a_jwt_audience=...` 或环境变量提供），脚本不再自动填默认值。
-- `A2A_JWT_ISSUER`：JWT issuer；必须显式设置（可通过 `deploy.sh` 参数 `a2a_jwt_issuer=...` 或环境变量提供），脚本不再自动填默认值。
-- `A2A_JWT_ALGORITHM`：JWT 算法；可通过 `deploy.sh` 参数 `a2a_jwt_algorithm=...` 显式设置。未提供时由应用配置默认值处理（`RS256`）。
-- `A2A_JWT_SCOPE_MATCH`：scope 匹配策略（`any|all`）；可通过 `deploy.sh` 参数 `a2a_jwt_scope_match=...` 显式设置。未提供时由应用配置默认值处理（`any`）。
 - `A2A_LOG_LEVEL`：A2A 日志级别，默认 `DEBUG`（脚本内默认）
 - `A2A_LOG_PAYLOADS`：是否记录 A2A 与 OpenCode 请求/响应正文，默认 `true`（脚本内默认）
 - `A2A_LOG_BODY_LIMIT`：日志正文最大长度，默认 `0`（不截断）
@@ -127,7 +123,7 @@ HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：
 
 - `config/opencode.env`：仅 OpenCode 读取（包含 `GH_TOKEN` 与 Git 身份配置）
 - `config/opencode.secret.env`：仅 OpenCode 读取的敏感配置（可选，包含 `GOOGLE_GENERATIVE_AI_API_KEY`）
-- `config/a2a.env`：仅 A2A 读取（包含 `A2A_BEARER_TOKEN`、`A2A_JWT_*`，以及 `OPENCODE_PROVIDER_ID/OPENCODE_MODEL_ID` 等模型配置）
+- `config/a2a.env`：仅 A2A 读取（包含 `A2A_BEARER_TOKEN`，以及 `OPENCODE_PROVIDER_ID/OPENCODE_MODEL_ID` 等模型配置）
 
 `GOOGLE_GENERATIVE_AI_API_KEY` 可在部署时通过环境变量或 `google_generative_ai_api_key` 参数提供，脚本会将其写入 `config/opencode.secret.env`（权限 `600`，`root:root`），并由 `opencode@.service` 通过 `EnvironmentFile` 持久加载。服务重启或服务器重启后无需重新注入。
 

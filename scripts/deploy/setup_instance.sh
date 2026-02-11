@@ -23,8 +23,6 @@ fi
 : "${A2A_PORT:?}"
 : "${A2A_PUBLIC_URL:?}"
 : "${A2A_STREAMING:=true}"
-: "${A2A_JWT_AUDIENCE:?}"
-: "${A2A_JWT_ISSUER:?}"
 
 PROJECT_DIR="${DATA_ROOT}/${PROJECT_NAME}"
 WORKSPACE_DIR="${PROJECT_DIR}/workspace"
@@ -175,14 +173,6 @@ a2a_env_tmp="$(mktemp)"
   echo "A2A_PORT=${A2A_PORT}"
   echo "A2A_PUBLIC_URL=${A2A_PUBLIC_URL}"
   echo "A2A_BEARER_TOKEN=${A2A_BEARER_TOKEN}"
-  echo "A2A_JWT_AUDIENCE=${A2A_JWT_AUDIENCE}"
-  echo "A2A_JWT_ISSUER=${A2A_JWT_ISSUER}"
-  if [[ -n "${A2A_JWT_ALGORITHM:-}" ]]; then
-    echo "A2A_JWT_ALGORITHM=${A2A_JWT_ALGORITHM}"
-  fi
-  if [[ -n "${A2A_JWT_SCOPE_MATCH:-}" ]]; then
-    echo "A2A_JWT_SCOPE_MATCH=${A2A_JWT_SCOPE_MATCH}"
-  fi
   echo "A2A_STREAMING=${A2A_STREAMING}"
   echo "A2A_LOG_LEVEL=${A2A_LOG_LEVEL:-INFO}"
   echo "A2A_LOG_PAYLOADS=${A2A_LOG_PAYLOADS:-false}"

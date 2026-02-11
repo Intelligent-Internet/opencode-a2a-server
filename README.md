@@ -7,7 +7,7 @@
 
 它本质上是一个“协议桥接”与“安全边界收口”：将 A2A 的 message/task 语义转发到 OpenCode 的 session/message/event 接口，并补齐鉴权、可观测与续聊契约。
 
-> 重要：服务启动 **必须** 设置 `A2A_BEARER_TOKEN`、`A2A_JWT_AUDIENCE`、`A2A_JWT_ISSUER`（见 `docs/guide.md`）。
+> 重要：服务启动 **必须** 设置 `A2A_BEARER_TOKEN`（见 `docs/guide.md`）。
 
 ## 安全边界（必须阅读）
 
@@ -45,10 +45,7 @@ uv sync --all-extras
 3) 启动 A2A 服务：
 
 ```bash
-A2A_BEARER_TOKEN=dev-token \
-A2A_JWT_AUDIENCE=dev-audience \
-A2A_JWT_ISSUER=http://127.0.0.1:8000 \
-uv run opencode-a2a-serve
+A2A_BEARER_TOKEN=dev-token uv run opencode-a2a-serve
 ```
 
 默认监听：`http://127.0.0.1:8000`
@@ -77,8 +74,6 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
 - `OPENCODE_BASE_URL`：OpenCode 地址（默认 `http://127.0.0.1:4096`）
 - `OPENCODE_DIRECTORY`：OpenCode 的 directory 参数（可选；服务端控制，客户端不可覆盖）
 - `A2A_BEARER_TOKEN`：必填；用于 Bearer Token 校验
-- `A2A_JWT_AUDIENCE`：必填；JWT audience（当前主要用于配置约束与后续鉴权接入）
-- `A2A_JWT_ISSUER`：必填；JWT issuer（当前主要用于配置约束与后续鉴权接入）
 - `A2A_PUBLIC_URL`：对外可访问的 A2A 地址前缀（用于 Agent Card 的 `url`/interfaces；反代/域名场景建议设置）
 - `A2A_STREAMING`：是否启用 SSE streaming（默认 `true`）
 - `A2A_SESSION_CACHE_TTL_SECONDS` / `A2A_SESSION_CACHE_MAXSIZE`：`(identity, contextId) -> session_id` 内存映射缓存配置（用于未显式绑定 session 的续聊）

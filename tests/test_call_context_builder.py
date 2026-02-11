@@ -1,6 +1,6 @@
 from starlette.requests import Request
 
-from opencode_a2a.app import IdentityAwareCallContextBuilder, _token_fingerprint
+from opencode_a2a.app import IdentityAwareCallContextBuilder
 
 
 def _request(path: str, *, raw_path: bytes | None = None) -> Request:
@@ -21,16 +21,6 @@ def _request(path: str, *, raw_path: bytes | None = None) -> Request:
     req = Request(scope)
     req.state.user_identity = "opaque:test-id"
     return req
-
-
-def test_token_fingerprint_is_stable_and_nonempty():
-    fp1 = _token_fingerprint("secret-token")
-    fp2 = _token_fingerprint("secret-token")
-    fp3 = _token_fingerprint("another-token")
-
-    assert fp1 == fp2
-    assert fp1 != fp3
-    assert len(fp1) == 16
 
 
 def test_builder_sets_identity_for_non_stream_request():
