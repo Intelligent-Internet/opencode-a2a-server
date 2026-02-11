@@ -212,3 +212,71 @@ def test_session_owner_cache_is_bounded():
 
     # Cache is bounded by maxsize; oldest arbitrary entries may be evicted.
     assert len(executor._session_owners._store) <= 2
+
+
+@pytest.mark.asyncio
+async def test_preferred_session_claim_is_released_on_upstream_failure():
+    client = AsyncMock(spec=OpencodeClient)
+
+    async def send_message(
+        session_id,
+        _text,
+        *,
+        directory=None,  # noqa: ARG001
+        timeout_override=None,  # noqa: ARG001
+    ):
+        raise RuntimeError(f"upstream failed for {session_id}")
+
+    client.send_message.side_effect = send_message
+    type(client).directory = PropertyMock(return_value="/tmp/workspace")
+    type(client).settings = PropertyMock(
+        return_value=Settings(
+            A2A_BEARER_TOKEN="test",
+            A2A_JWT_AUDIENCE="test",
+            A2A_JWT_ISSUER="test",
+            OPENCODE_BASE_URL="http://localhost",
+            A2A_ALLOW_DIRECTORY_OVERRIDE=True,
+        )
+    )
+
+    executor = OpencodeAgentExecutor(client, streaming_enabled=False)
+    event_queue = AsyncMock(spec=EventQueue)
+
+    context = MagicMock(spec=RequestContext)
+    context.task_id = "task-1"
+    context.context_id = "context-A"
+    context.call_context = MagicMock(spec=ServerCallContext)
+    context.call_context.state = {"identity": "user-1"}
+    context.get_user_input.return_value = "hello"
+    context.metadata = {"opencode_session_id": "session-X"}
+    context.current_task = None
+    context.message = None
+
+    await executor.execute(context, event_queue)
+
+    assert executor._session_owners.get("session-X") is None
+    assert executor._pending_session_claims.get("session-X") is None
+
+
+@pytest.mark.asyncio
+async def test_pending_preferred_session_claim_blocks_other_identity():
+    executor = OpencodeAgentExecutor(AsyncMock(spec=OpencodeClient), streaming_enabled=False)
+
+    session_id, pending = await executor._get_or_create_session(
+        "user-1",
+        "context-A",
+        "hello",
+        preferred_session_id="session-X",
+    )
+    assert session_id == "session-X"
+    assert pending is True
+
+    with pytest.raises(PermissionError, match="not owned by you"):
+        await executor._get_or_create_session(
+            "user-2",
+            "context-B",
+            "hello",
+            preferred_session_id="session-X",
+        )
+
+    await executor._release_preferred_session_claim(identity="user-1", session_id="session-X")

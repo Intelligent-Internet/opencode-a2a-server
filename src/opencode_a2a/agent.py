@@ -106,6 +106,7 @@ class OpencodeAgentExecutor(AgentExecutor):
             ttl_seconds=session_cache_ttl_seconds,
             maxsize=session_cache_maxsize,
         )  # session_id -> identity
+        self._pending_session_claims: dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._inflight_session_creates: dict[tuple[str, str], asyncio.Task[str]] = {}
 
@@ -224,9 +225,11 @@ class OpencodeAgentExecutor(AgentExecutor):
         stream_artifact_id = f"{task_id}:stream"
         stop_event = asyncio.Event()
         stream_task: asyncio.Task[None] | None = None
+        pending_preferred_claim = False
+        session_id = ""
 
         try:
-            session_id = await self._get_or_create_session(
+            session_id, pending_preferred_claim = await self._get_or_create_session(
                 identity,
                 context_id,
                 user_text,
@@ -266,6 +269,15 @@ class OpencodeAgentExecutor(AgentExecutor):
                 response = await self._client.send_message(
                     session_id, user_text, directory=directory
                 )
+
+            if pending_preferred_claim:
+                await self._finalize_preferred_session_binding(
+                    identity=identity,
+                    context_id=context_id,
+                    session_id=session_id,
+                )
+                pending_preferred_claim = False
+
             response_text = response.text or "(No text content returned by OpenCode.)"
             logger.debug(
                 "OpenCode response task_id=%s session_id=%s message_id=%s text=%s",
@@ -330,6 +342,12 @@ class OpencodeAgentExecutor(AgentExecutor):
                 task.status.message = assistant_message
                 await event_queue.enqueue_event(task)
         except Exception as exc:
+            if pending_preferred_claim and session_id:
+                with suppress(Exception):
+                    await self._release_preferred_session_claim(
+                        identity=identity,
+                        session_id=session_id,
+                    )
             logger.exception("OpenCode request failed")
             await self._emit_error(
                 event_queue,
@@ -399,11 +417,12 @@ class OpencodeAgentExecutor(AgentExecutor):
         *,
         preferred_session_id: str | None = None,
         directory: str | None = None,
-    ) -> str:
+    ) -> tuple[str, bool]:
         # Caller explicitly bound the request to a known OpenCode session.
         if preferred_session_id:
             async with self._lock:
                 owner = self._session_owners.get(preferred_session_id)
+                pending_owner = self._pending_session_claims.get(preferred_session_id)
                 if owner and owner != identity:
                     logger.warning(
                         "Identity %s tried to hijack session %s owned by %s",
@@ -413,18 +432,30 @@ class OpencodeAgentExecutor(AgentExecutor):
                     )
                     raise PermissionError(f"Session {preferred_session_id} is not owned by you")
 
-                if not owner:
-                    self._session_owners.set(preferred_session_id, identity)
+                if pending_owner and pending_owner != identity:
+                    logger.warning(
+                        "Identity %s tried to use session %s while pending owner is %s",
+                        identity,
+                        preferred_session_id,
+                        pending_owner,
+                    )
+                    raise PermissionError(f"Session {preferred_session_id} is not owned by you")
 
-                self._sessions.set((identity, context_id), preferred_session_id)
-            return preferred_session_id
+                # Existing owner is trusted and can be bound immediately.
+                if owner == identity:
+                    self._sessions.set((identity, context_id), preferred_session_id)
+                    return preferred_session_id, False
+
+                # Unknown owner: reserve a temporary claim; finalize after upstream send succeeds.
+                self._pending_session_claims[preferred_session_id] = identity
+                return preferred_session_id, True
 
         task: asyncio.Task[str] | None = None
         cache_key = (identity, context_id)
         async with self._lock:
             existing = self._sessions.get(cache_key)
             if existing:
-                return existing
+                return existing, False
             task = self._inflight_session_creates.get(cache_key)
             if task is None:
                 task = asyncio.create_task(
@@ -452,7 +483,32 @@ class OpencodeAgentExecutor(AgentExecutor):
                 self._session_owners.set(session_id, identity)
             if self._inflight_session_creates.get(cache_key) is task:
                 self._inflight_session_creates.pop(cache_key, None)
-        return session_id
+        return session_id, False
+
+    async def _finalize_preferred_session_binding(
+        self,
+        *,
+        identity: str,
+        context_id: str,
+        session_id: str,
+    ) -> None:
+        async with self._lock:
+            owner = self._session_owners.get(session_id)
+            pending_owner = self._pending_session_claims.get(session_id)
+            if owner and owner != identity:
+                raise PermissionError(f"Session {session_id} is not owned by you")
+            if pending_owner and pending_owner != identity:
+                raise PermissionError(f"Session {session_id} is not owned by you")
+
+            self._session_owners.set(session_id, identity)
+            self._sessions.set((identity, context_id), session_id)
+            if self._pending_session_claims.get(session_id) == identity:
+                self._pending_session_claims.pop(session_id, None)
+
+    async def _release_preferred_session_claim(self, *, identity: str, session_id: str) -> None:
+        async with self._lock:
+            if self._pending_session_claims.get(session_id) == identity:
+                self._pending_session_claims.pop(session_id, None)
 
     async def _emit_error(
         self,
