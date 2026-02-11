@@ -92,7 +92,7 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
 服务端行为：
 
 - 若提供 `metadata.opencode_session_id`：优先发送消息到该 session（不新建 session）。
-- 若未提供：服务端会创建新 session，并在内存中缓存 `contextId -> session_id`（带 TTL 与最大容量限制）。
+- 若未提供：服务端会创建新 session，并在内存中缓存 `(identity, contextId) -> session_id`（带 TTL 与最大容量限制）。
 
 最小 curl 示例：
 

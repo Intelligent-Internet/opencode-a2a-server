@@ -66,7 +66,7 @@ HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：
 ./scripts/deploy.sh project=alpha github_token=ghp_xxx a2a_bearer_token=a2a_xxx a2a_port=8010 a2a_host=127.0.0.1 a2a_public_url=https://a2a.example.com
 ```
 
-支持的 key（不区分大小写）：`project`/`project_name`、`github_token`/`gh_token`、`a2a_bearer_token`、`a2a_port`、`a2a_host`、`a2a_public_url`、`opencode_provider_id`、`opencode_model_id`、`repo_url`、`repo_branch`、`opencode_timeout`、`opencode_timeout_stream`、`git_identity_name`、`git_identity_email`、`google_generative_ai_api_key`（可用 `google_api_key` 作为别名）、`update_a2a`、`force_restart`。
+支持的 key（不区分大小写）：`project`/`project_name`、`github_token`/`gh_token`、`a2a_bearer_token`、`a2a_port`、`a2a_host`、`a2a_public_url`、`a2a_jwt_audience`、`a2a_jwt_issuer`、`a2a_jwt_algorithm`、`a2a_jwt_scope_match`、`opencode_provider_id`、`opencode_model_id`、`repo_url`、`repo_branch`、`opencode_timeout`、`opencode_timeout_stream`、`git_identity_name`、`git_identity_email`、`google_generative_ai_api_key`（可用 `google_api_key` 作为别名）、`update_a2a`、`force_restart`。
 
 > `github_token` **必须使用项目专属的 Fine-grained personal access token**，并严格限制权限范围（**不得跨仓授权**，仅授予该项目仓库所需的最小读写权限）。
 

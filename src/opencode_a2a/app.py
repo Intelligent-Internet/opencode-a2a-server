@@ -143,7 +143,8 @@ def build_agent_card(settings: Settings) -> AgentCard:
                             ),
                             (
                                 "Otherwise, the server will create a new OpenCode session and "
-                                "cache the contextId->session_id mapping in memory with TTL."
+                                "cache the (identity, contextId)->session_id mapping in memory "
+                                "with TTL."
                             ),
                         ],
                     },

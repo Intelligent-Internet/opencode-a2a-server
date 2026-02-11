@@ -28,8 +28,8 @@ from .opencode_client import OpencodeClient
 logger = logging.getLogger(__name__)
 
 
-class _TTLSessions:
-    """Bounded TTL cache for (identity, context_id) -> session_id.
+class _TTLCache:
+    """Bounded TTL cache for hashable key -> string value.
 
     This is intentionally tiny and dependency-free. It provides best-effort cleanup:
     - Expired entries are removed on get/set.
@@ -46,13 +46,12 @@ class _TTLSessions:
         self._ttl_seconds = int(ttl_seconds)
         self._maxsize = int(maxsize)
         self._now = now
-        # value: (session_id, expires_at_monotonic)
-        self._store: dict[tuple[str, str], tuple[str, float]] = {}
+        # value: (string_value, expires_at_monotonic)
+        self._store: dict[object, tuple[str, float]] = {}
 
-    def get(self, identity: str, context_id: str) -> str | None:
+    def get(self, key: object) -> str | None:
         if self._ttl_seconds <= 0 or self._maxsize <= 0:
             return None
-        key = (identity, context_id)
         item = self._store.get(key)
         if not item:
             return None
@@ -62,17 +61,15 @@ class _TTLSessions:
             return None
         return value
 
-    def set(self, identity: str, context_id: str, value: str) -> None:
+    def set(self, key: object, value: str) -> None:
         if self._ttl_seconds <= 0 or self._maxsize <= 0:
             return
         now = self._now()
         expires_at = now + float(self._ttl_seconds)
-        key = (identity, context_id)
         self._store[key] = (value, expires_at)
         self._evict_if_needed(now=now)
 
-    def pop(self, identity: str, context_id: str) -> None:
-        key = (identity, context_id)
+    def pop(self, key: object) -> None:
         self._store.pop(key, None)
 
     def _evict_if_needed(self, *, now: float) -> None:
@@ -101,11 +98,14 @@ class OpencodeAgentExecutor(AgentExecutor):
     ) -> None:
         self._client = client
         self._streaming_enabled = streaming_enabled
-        self._sessions = _TTLSessions(
+        self._sessions = _TTLCache(
             ttl_seconds=session_cache_ttl_seconds,
             maxsize=session_cache_maxsize,
         )
-        self._session_owners: dict[str, str] = {}  # session_id -> identity
+        self._session_owners = _TTLCache(
+            ttl_seconds=session_cache_ttl_seconds,
+            maxsize=session_cache_maxsize,
+        )  # session_id -> identity
         self._lock = asyncio.Lock()
         self._inflight_session_creates: dict[tuple[str, str], asyncio.Task[str]] = {}
 
@@ -371,7 +371,7 @@ class OpencodeAgentExecutor(AgentExecutor):
             await event_queue.enqueue_event(event)
 
             async with self._lock:
-                self._sessions.pop(identity, context_id)
+                self._sessions.pop((identity, context_id))
                 inflight = self._inflight_session_creates.pop((identity, context_id), None)
             if inflight:
                 inflight.cancel()
@@ -414,15 +414,15 @@ class OpencodeAgentExecutor(AgentExecutor):
                     raise PermissionError(f"Session {preferred_session_id} is not owned by you")
 
                 if not owner:
-                    self._session_owners[preferred_session_id] = identity
+                    self._session_owners.set(preferred_session_id, identity)
 
-                self._sessions.set(identity, context_id, preferred_session_id)
+                self._sessions.set((identity, context_id), preferred_session_id)
             return preferred_session_id
 
         task: asyncio.Task[str] | None = None
         cache_key = (identity, context_id)
         async with self._lock:
-            existing = self._sessions.get(identity, context_id)
+            existing = self._sessions.get(cache_key)
             if existing:
                 return existing
             task = self._inflight_session_creates.get(cache_key)
@@ -447,9 +447,9 @@ class OpencodeAgentExecutor(AgentExecutor):
                 if self._inflight_session_creates.get(cache_key) is task:
                     self._inflight_session_creates.pop(cache_key, None)
                 raise PermissionError(f"Session {session_id} is not owned by you")
-            self._sessions.set(identity, context_id, session_id)
+            self._sessions.set(cache_key, session_id)
             if not owner:
-                self._session_owners[session_id] = identity
+                self._session_owners.set(session_id, identity)
             if self._inflight_session_creates.get(cache_key) is task:
                 self._inflight_session_creates.pop(cache_key, None)
         return session_id
