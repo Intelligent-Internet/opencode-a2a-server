@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy an isolated OpenCode + A2A instance (systemd services).
-# Usage: ./deploy.sh project=<name> github_token=<token> a2a_bearer_token=<token> [a2a_port=<port>] [a2a_host=<host>] [a2a_public_url=<url>] [opencode_provider_id=<id>] [opencode_model_id=<id>] [repo_url=<url>] [repo_branch=<branch>] [opencode_timeout=<seconds>] [opencode_timeout_stream=<seconds>] [git_identity_name=<name>] [git_identity_email=<email>] [update_a2a=true] [force_restart=true]
+# Usage: ./deploy.sh project=<name> github_token=<token> a2a_bearer_token=<token> [a2a_port=<port>] [a2a_host=<host>] [a2a_public_url=<url>] [a2a_jwt_audience=<aud>] [a2a_jwt_issuer=<iss>] [a2a_jwt_algorithm=<alg>] [a2a_jwt_scope_match=<any|all>] [opencode_provider_id=<id>] [opencode_model_id=<id>] [repo_url=<url>] [repo_branch=<branch>] [opencode_timeout=<seconds>] [opencode_timeout_stream=<seconds>] [git_identity_name=<name>] [git_identity_email=<email>] [update_a2a=true] [force_restart=true]
 # Optional: GOOGLE_GENERATIVE_AI_API_KEY=<key> to persist API key into opencode.secret.env for opencode@ service.
 # Requires: sudo access to write systemd units and create users/directories.
 #
@@ -10,7 +10,7 @@
 # - UV_PYTHON_DIR: path to uv python pool (default: /opt/uv-python)
 # - DATA_ROOT: instance root directory (default: /data/opencode-a2a)
 # - OPENCODE_BIND_HOST/OPENCODE_BIND_PORT/OPENCODE_LOG_LEVEL/OPENCODE_EXTRA_ARGS
-# - A2A_HOST/A2A_PORT/A2A_LOG_LEVEL
+# - A2A_HOST/A2A_PORT/A2A_LOG_LEVEL/A2A_JWT_AUDIENCE/A2A_JWT_ISSUER
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +21,10 @@ A2A_BEARER_TOKEN=""
 A2A_PORT_INPUT=""
 A2A_HOST_INPUT=""
 A2A_PUBLIC_URL_INPUT=""
+A2A_JWT_AUDIENCE_INPUT=""
+A2A_JWT_ISSUER_INPUT=""
+A2A_JWT_ALGORITHM_INPUT=""
+A2A_JWT_SCOPE_MATCH_INPUT=""
 OPENCODE_PROVIDER_ID_INPUT=""
 OPENCODE_MODEL_ID_INPUT=""
 GOOGLE_API_KEY_INPUT="${GOOGLE_GENERATIVE_AI_API_KEY:-}"
@@ -60,6 +64,18 @@ for arg in "$@"; do
       ;;
     a2a_public_url)
       A2A_PUBLIC_URL_INPUT="$value"
+      ;;
+    a2a_jwt_audience)
+      A2A_JWT_AUDIENCE_INPUT="$value"
+      ;;
+    a2a_jwt_issuer)
+      A2A_JWT_ISSUER_INPUT="$value"
+      ;;
+    a2a_jwt_algorithm)
+      A2A_JWT_ALGORITHM_INPUT="$value"
+      ;;
+    a2a_jwt_scope_match)
+      A2A_JWT_SCOPE_MATCH_INPUT="$value"
       ;;
     opencode_provider_id)
       OPENCODE_PROVIDER_ID_INPUT="$value"
@@ -102,7 +118,7 @@ for arg in "$@"; do
 done
 
 if [[ -z "$PROJECT_NAME" || -z "$GH_TOKEN" || -z "$A2A_BEARER_TOKEN" ]]; then
-  echo "Usage: $0 project=<name> github_token=<token> a2a_bearer_token=<token> [a2a_port=<port>] [a2a_host=<host>] [a2a_public_url=<url>] [opencode_provider_id=<id>] [opencode_model_id=<id>] [repo_url=<url>] [repo_branch=<branch>] [opencode_timeout=<seconds>] [opencode_timeout_stream=<seconds>] [git_identity_name=<name>] [git_identity_email=<email>] [update_a2a=true] [force_restart=true]" >&2
+  echo "Usage: $0 project=<name> github_token=<token> a2a_bearer_token=<token> [a2a_port=<port>] [a2a_host=<host>] [a2a_public_url=<url>] [a2a_jwt_audience=<aud>] [a2a_jwt_issuer=<iss>] [a2a_jwt_algorithm=<alg>] [a2a_jwt_scope_match=<any|all>] [opencode_provider_id=<id>] [opencode_model_id=<id>] [repo_url=<url>] [repo_branch=<branch>] [opencode_timeout=<seconds>] [opencode_timeout_stream=<seconds>] [git_identity_name=<name>] [git_identity_email=<email>] [update_a2a=true] [force_restart=true]" >&2
   exit 1
 fi
 
@@ -166,6 +182,28 @@ if [[ -n "$A2A_PUBLIC_URL_INPUT" ]]; then
 else
   export A2A_PUBLIC_URL="http://${A2A_HOST}:${A2A_PORT}"
 fi
+
+if [[ -n "$A2A_JWT_AUDIENCE_INPUT" ]]; then
+  export A2A_JWT_AUDIENCE="$A2A_JWT_AUDIENCE_INPUT"
+else
+  export A2A_JWT_AUDIENCE="${A2A_JWT_AUDIENCE:-$A2A_PUBLIC_URL}"
+fi
+if [[ -n "$A2A_JWT_ISSUER_INPUT" ]]; then
+  export A2A_JWT_ISSUER="$A2A_JWT_ISSUER_INPUT"
+else
+  export A2A_JWT_ISSUER="${A2A_JWT_ISSUER:-$A2A_PUBLIC_URL}"
+fi
+if [[ -n "$A2A_JWT_ALGORITHM_INPUT" ]]; then
+  export A2A_JWT_ALGORITHM="$A2A_JWT_ALGORITHM_INPUT"
+else
+  export A2A_JWT_ALGORITHM="${A2A_JWT_ALGORITHM:-RS256}"
+fi
+if [[ -n "$A2A_JWT_SCOPE_MATCH_INPUT" ]]; then
+  export A2A_JWT_SCOPE_MATCH="$A2A_JWT_SCOPE_MATCH_INPUT"
+else
+  export A2A_JWT_SCOPE_MATCH="${A2A_JWT_SCOPE_MATCH:-any}"
+fi
+
 export A2A_LOG_LEVEL="${A2A_LOG_LEVEL:-DEBUG}"
 export A2A_STREAMING="${A2A_STREAMING:-true}"
 export A2A_LOG_PAYLOADS="${A2A_LOG_PAYLOADS:-true}"

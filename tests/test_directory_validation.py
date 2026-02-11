@@ -40,6 +40,10 @@ def test_resolve_and_validate_directory_valid(mock_client):
     resolved = executor._resolve_and_validate_directory("/tmp/workspace")
     assert resolved == str(base_dir)
 
+    # Relative path should be resolved against workspace root, not process cwd.
+    resolved = executor._resolve_and_validate_directory("project2/sub")
+    assert resolved == str((base_dir / "project2/sub").resolve())
+
 
 def test_resolve_and_validate_directory_traversal(mock_client):
     executor = OpencodeAgentExecutor(mock_client, streaming_enabled=False)
@@ -50,6 +54,9 @@ def test_resolve_and_validate_directory_traversal(mock_client):
 
     with pytest.raises(ValueError, match="outside the allowed workspace"):
         executor._resolve_and_validate_directory("/etc/passwd")
+
+    with pytest.raises(ValueError, match="outside the allowed workspace"):
+        executor._resolve_and_validate_directory("../secret")
 
 
 def test_resolve_and_validate_directory_override_disabled(mock_client):

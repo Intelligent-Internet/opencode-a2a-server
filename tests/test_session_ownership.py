@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
@@ -131,3 +132,67 @@ async def test_session_hijack_prevention(mock_client):
                 found_error_task = True
                 break
     assert found_error_task
+
+
+@pytest.mark.asyncio
+async def test_concurrent_session_create_isolated_by_identity():
+    client = AsyncMock(spec=OpencodeClient)
+    created = 0
+
+    async def create_session(title=None, directory=None):
+        nonlocal created
+        await asyncio.sleep(0.05)
+        created += 1
+        return f"session-{created}"
+
+    async def send_message(
+        session_id,
+        _text,
+        *,
+        directory=None,
+        timeout_override=None,
+    ):
+        del directory, timeout_override
+        response = MagicMock()
+        response.text = "OpenCode response"
+        response.session_id = session_id
+        response.message_id = "msg-1"
+        return response
+
+    client.create_session.side_effect = create_session
+    client.send_message.side_effect = send_message
+    type(client).directory = PropertyMock(return_value="/tmp/workspace")
+    type(client).settings = PropertyMock(
+        return_value=Settings(
+            A2A_BEARER_TOKEN="test",
+            A2A_JWT_AUDIENCE="test",
+            A2A_JWT_ISSUER="test",
+            OPENCODE_BASE_URL="http://localhost",
+            A2A_ALLOW_DIRECTORY_OVERRIDE=True,
+        )
+    )
+
+    executor = OpencodeAgentExecutor(client, streaming_enabled=False)
+    event_queue_1 = AsyncMock(spec=EventQueue)
+    event_queue_2 = AsyncMock(spec=EventQueue)
+
+    def _context(task_id: str, identity: str) -> RequestContext:
+        context = MagicMock(spec=RequestContext)
+        context.task_id = task_id
+        context.context_id = "context-A"
+        context.call_context = MagicMock(spec=ServerCallContext)
+        context.call_context.state = {"identity": identity}
+        context.get_user_input.return_value = "hello"
+        context.current_task = None
+        context.message = None
+        context.metadata = None
+        return context
+
+    await asyncio.gather(
+        executor.execute(_context("task-1", "user-1"), event_queue_1),
+        executor.execute(_context("task-2", "user-2"), event_queue_2),
+    )
+
+    assert client.create_session.call_count == 2
+    assert executor._sessions.get("user-1", "context-A") == "session-1"
+    assert executor._sessions.get("user-2", "context-A") == "session-2"

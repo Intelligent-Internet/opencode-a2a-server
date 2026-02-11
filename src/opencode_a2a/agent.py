@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 class _TTLSessions:
-    """Bounded TTL cache for context_id -> session_id.
+    """Bounded TTL cache for (identity, context_id) -> session_id.
 
     This is intentionally tiny and dependency-free. It provides best-effort cleanup:
     - Expired entries are removed on get/set.
@@ -46,12 +46,12 @@ class _TTLSessions:
         self._maxsize = int(maxsize)
         self._now = now
         # value: (session_id, expires_at_monotonic)
-        self._store: dict[str, tuple[str, float]] = {}
+        self._store: dict[tuple[str, str], tuple[str, float]] = {}
 
     def get(self, identity: str, context_id: str) -> str | None:
         if self._ttl_seconds <= 0 or self._maxsize <= 0:
             return None
-        key = f"{identity}:{context_id}"
+        key = (identity, context_id)
         item = self._store.get(key)
         if not item:
             return None
@@ -66,12 +66,12 @@ class _TTLSessions:
             return
         now = self._now()
         expires_at = now + float(self._ttl_seconds)
-        key = f"{identity}:{context_id}"
+        key = (identity, context_id)
         self._store[key] = (value, expires_at)
         self._evict_if_needed(now=now)
 
     def pop(self, identity: str, context_id: str) -> None:
-        key = f"{identity}:{context_id}"
+        key = (identity, context_id)
         self._store.pop(key, None)
 
     def _evict_if_needed(self, *, now: float) -> None:
@@ -106,7 +106,7 @@ class OpencodeAgentExecutor(AgentExecutor):
         )
         self._session_owners: dict[str, str] = {}  # session_id -> identity
         self._lock = asyncio.Lock()
-        self._inflight_session_creates: dict[str, asyncio.Task[str]] = {}
+        self._inflight_session_creates: dict[tuple[str, str], asyncio.Task[str]] = {}
 
     def _resolve_and_validate_directory(self, requested: str | None) -> str | None:
         """Normalizes and validates the directory parameter against workspace boundaries.
@@ -119,19 +119,29 @@ class OpencodeAgentExecutor(AgentExecutor):
         base_dir_str = self._client.directory or os.getcwd()
         base_path = Path(base_dir_str).resolve()
 
+        if requested is not None and not isinstance(requested, str):
+            raise ValueError("Directory must be a string path")
+
+        requested = requested.strip() if requested else requested
         if not requested:
             return str(base_path)
+
+        def _resolve_requested(path: str) -> Path:
+            p = Path(path)
+            if not p.is_absolute():
+                p = base_path / p
+            return p.resolve()
 
         # 1. Deny override if disabled in settings
         if not self._client.settings.a2a_allow_directory_override:
             # If requested matches normalized base, it's fine.
-            requested_path = Path(requested).resolve()
+            requested_path = _resolve_requested(requested)
             if requested_path == base_path:
                 return str(base_path)
             raise ValueError("Directory override is disabled by service configuration")
 
         # 2. Resolve requested path
-        requested_path = Path(requested).resolve()
+        requested_path = _resolve_requested(requested)
 
         # 3. Boundary check: must be subpath of base_path
         try:
@@ -351,7 +361,7 @@ class OpencodeAgentExecutor(AgentExecutor):
 
             async with self._lock:
                 self._sessions.pop(identity, context_id)
-                inflight = self._inflight_session_creates.pop(context_id, None)
+                inflight = self._inflight_session_creates.pop((identity, context_id), None)
             if inflight:
                 inflight.cancel()
                 with suppress(asyncio.CancelledError):
@@ -399,31 +409,38 @@ class OpencodeAgentExecutor(AgentExecutor):
             return preferred_session_id
 
         task: asyncio.Task[str] | None = None
+        cache_key = (identity, context_id)
         async with self._lock:
             existing = self._sessions.get(identity, context_id)
             if existing:
                 return existing
-            task = self._inflight_session_creates.get(context_id)
+            task = self._inflight_session_creates.get(cache_key)
             if task is None:
                 task = asyncio.create_task(
                     self._client.create_session(title=title, directory=directory)
                 )
-                self._inflight_session_creates[context_id] = task
+                self._inflight_session_creates[cache_key] = task
 
         try:
             session_id = await task
         except Exception:
             async with self._lock:
-                if self._inflight_session_creates.get(context_id) is task:
-                    self._inflight_session_creates.pop(context_id, None)
+                if self._inflight_session_creates.get(cache_key) is task:
+                    self._inflight_session_creates.pop(cache_key, None)
             raise
 
         async with self._lock:
             # Session create finished; commit to cache and drop inflight marker.
+            owner = self._session_owners.get(session_id)
+            if owner and owner != identity:
+                if self._inflight_session_creates.get(cache_key) is task:
+                    self._inflight_session_creates.pop(cache_key, None)
+                raise PermissionError(f"Session {session_id} is not owned by you")
             self._sessions.set(identity, context_id, session_id)
-            self._session_owners[session_id] = identity
-            if self._inflight_session_creates.get(context_id) is task:
-                self._inflight_session_creates.pop(context_id, None)
+            if not owner:
+                self._session_owners[session_id] = identity
+            if self._inflight_session_creates.get(cache_key) is task:
+                self._inflight_session_creates.pop(cache_key, None)
         return session_id
 
     async def _emit_error(

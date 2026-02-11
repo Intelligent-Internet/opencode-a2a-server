@@ -107,6 +107,10 @@ HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：
 
 - `A2A_HOST`：A2A 监听地址，默认 `127.0.0.1`（也可通过 `deploy.sh` 的 `a2a_host=...` 参数设置）
 - `A2A_PORT`：A2A 监听端口，默认 `8000`（多实例时需为每个项目分配不同端口）
+- `A2A_JWT_AUDIENCE`：JWT audience；可通过 `deploy.sh` 参数 `a2a_jwt_audience=...` 设置。未设置时默认等于 `A2A_PUBLIC_URL`。
+- `A2A_JWT_ISSUER`：JWT issuer；可通过 `deploy.sh` 参数 `a2a_jwt_issuer=...` 设置。未设置时默认等于 `A2A_PUBLIC_URL`。
+- `A2A_JWT_ALGORITHM`：JWT 算法；可通过 `deploy.sh` 参数 `a2a_jwt_algorithm=...` 设置，默认 `RS256`。
+- `A2A_JWT_SCOPE_MATCH`：scope 匹配策略（`any|all`）；可通过 `deploy.sh` 参数 `a2a_jwt_scope_match=...` 设置，默认 `any`。
 - `A2A_LOG_LEVEL`：A2A 日志级别，默认 `DEBUG`（脚本内默认）
 - `A2A_LOG_PAYLOADS`：是否记录 A2A 与 OpenCode 请求/响应正文，默认 `true`（脚本内默认）
 - `A2A_LOG_BODY_LIMIT`：日志正文最大长度，默认 `0`（不截断）
@@ -123,7 +127,7 @@ HTTPS 域名示例（避免 root 多实例环境变量互相干扰）：
 
 - `config/opencode.env`：仅 OpenCode 读取（包含 `GH_TOKEN` 与 Git 身份配置）
 - `config/opencode.secret.env`：仅 OpenCode 读取的敏感配置（可选，包含 `GOOGLE_GENERATIVE_AI_API_KEY`）
-- `config/a2a.env`：仅 A2A 读取（包含 `A2A_BEARER_TOKEN`，以及 `OPENCODE_PROVIDER_ID/OPENCODE_MODEL_ID` 等模型配置）
+- `config/a2a.env`：仅 A2A 读取（包含 `A2A_BEARER_TOKEN`、`A2A_JWT_*`，以及 `OPENCODE_PROVIDER_ID/OPENCODE_MODEL_ID` 等模型配置）
 
 `GOOGLE_GENERATIVE_AI_API_KEY` 可在部署时通过环境变量或 `google_generative_ai_api_key` 参数提供，脚本会将其写入 `config/opencode.secret.env`（权限 `600`，`root:root`），并由 `opencode@.service` 通过 `EnvironmentFile` 持久加载。服务重启或服务器重启后无需重新注入。
 
@@ -228,10 +232,9 @@ sudo systemctl stop opencode@<project>.service
 
 ## 安全与隔离说明
 
-systemd 单元已启用（内核级隔离）：
+systemd 单元已启用：
 
 - `ProtectSystem=strict`：整个系统根目录只读。
-- `InaccessiblePaths=${DATA_ROOT}`：禁止访问其他项目的根目录，彻底物理隔离不同实例的数据。
 - `ReadWritePaths=${DATA_ROOT}/%i`：仅允许读写当前项目自己的目录。
 - `PrivateTmp=true`：独立的 `/tmp` 空间，防止跨项目临时文件泄露。
 - `NoNewPrivileges=true`：禁止进程及其子进程获得新权限。
