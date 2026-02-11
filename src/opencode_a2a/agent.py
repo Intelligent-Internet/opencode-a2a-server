@@ -42,10 +42,12 @@ class _TTLCache:
         ttl_seconds: int,
         maxsize: int,
         now: callable[[], float] = time.monotonic,
+        refresh_on_get: bool = False,
     ) -> None:
         self._ttl_seconds = int(ttl_seconds)
         self._maxsize = int(maxsize)
         self._now = now
+        self._refresh_on_get = bool(refresh_on_get)
         # value: (string_value, expires_at_monotonic)
         self._store: dict[object, tuple[str, float]] = {}
 
@@ -56,9 +58,12 @@ class _TTLCache:
         if not item:
             return None
         value, expires_at = item
-        if expires_at <= self._now():
+        now = self._now()
+        if expires_at <= now:
             self._store.pop(key, None)
             return None
+        if self._refresh_on_get:
+            self._store[key] = (value, now + float(self._ttl_seconds))
         return value
 
     def set(self, key: object, value: str) -> None:
@@ -81,9 +86,10 @@ class _TTLCache:
             self._store.pop(k, None)
         if len(self._store) <= self._maxsize:
             return
-        # 2) Still too big: drop arbitrary entries to cap memory usage.
+        # 2) Still too big: evict the least recently renewed entries first.
         overflow = len(self._store) - self._maxsize
-        for k in list(self._store.keys())[:overflow]:
+        by_expiry = sorted(self._store.items(), key=lambda item: item[1][1])
+        for k, _ in by_expiry[:overflow]:
             self._store.pop(k, None)
 
 
@@ -105,6 +111,7 @@ class OpencodeAgentExecutor(AgentExecutor):
         self._session_owners = _TTLCache(
             ttl_seconds=session_cache_ttl_seconds,
             maxsize=session_cache_maxsize,
+            refresh_on_get=True,
         )  # session_id -> identity
         self._pending_session_claims: dict[str, str] = {}
         self._lock = asyncio.Lock()
@@ -342,12 +349,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                 task.status.message = assistant_message
                 await event_queue.enqueue_event(task)
         except Exception as exc:
-            if pending_preferred_claim and session_id:
-                with suppress(Exception):
-                    await self._release_preferred_session_claim(
-                        identity=identity,
-                        session_id=session_id,
-                    )
             logger.exception("OpenCode request failed")
             await self._emit_error(
                 event_queue,
@@ -357,6 +358,12 @@ class OpencodeAgentExecutor(AgentExecutor):
                 streaming_request=streaming_request,
             )
         finally:
+            if pending_preferred_claim and session_id:
+                with suppress(Exception):
+                    await self._release_preferred_session_claim(
+                        identity=identity,
+                        session_id=session_id,
+                    )
             stop_event.set()
             if stream_task:
                 stream_task.cancel()
