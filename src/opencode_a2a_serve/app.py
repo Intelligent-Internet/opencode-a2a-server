@@ -297,6 +297,44 @@ def create_app(settings: Settings) -> FastAPI:
             return method
         return None
 
+    def _looks_like_jsonrpc_message_payload(raw: bytes) -> bool:
+        try:
+            payload = json.loads(raw.decode("utf-8", errors="replace"))
+        except Exception:
+            return False
+        if not isinstance(payload, dict):
+            return False
+        message = payload.get("message")
+        if not isinstance(message, dict):
+            return False
+        if "parts" in message:
+            return True
+        role = message.get("role")
+        return isinstance(role, str) and role in {"user", "agent"}
+
+    @app.middleware("http")
+    async def guard_rest_payload_shape(request: Request, call_next):
+        if request.method != "POST" or request.url.path not in {
+            "/v1/message:send",
+            "/v1/message:stream",
+        }:
+            return await call_next(request)
+
+        body = await request.body()
+        request._body = body  # allow downstream to read again
+        if _looks_like_jsonrpc_message_payload(body):
+            return JSONResponse(
+                {
+                    "error": (
+                        "Invalid HTTP+JSON payload for REST endpoint. "
+                        "Use message.content with ROLE_* role values, or call "
+                        "POST / with method=message/send or method=message/stream."
+                    )
+                },
+                status_code=400,
+            )
+        return await call_next(request)
+
     @app.middleware("http")
     async def log_payloads(request: Request, call_next):
         if not settings.a2a_log_payloads:
