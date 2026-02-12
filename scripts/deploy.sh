@@ -8,6 +8,8 @@
 # Key environment variables:
 # - GH_TOKEN/A2A_BEARER_TOKEN (required secrets)
 # - Provider secret env vars listed above (optional)
+# - For non-secret options that support both env and CLI key=value, precedence is:
+#   CLI > env > default.
 # - OPENCODE_A2A_DIR: path to opencode-a2a-serve repo (default: /opt/opencode-a2a/opencode-a2a-serve)
 # - OPENCODE_CORE_DIR: path to opencode core (default: /opt/.opencode)
 # - UV_PYTHON_DIR: path to uv python pool (default: /opt/uv-python)
