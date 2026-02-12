@@ -2,6 +2,11 @@
 
 This guide explains how to deploy OpenCode + A2A as isolated per-project instances (two processes per project) on one host while sharing core runtime artifacts.
 
+Navigation:
+
+- Operations hub: `docs/operations/index.md`
+- Script reference index: `docs/operations/scripts/index.md`
+
 ## Prerequisites
 
 - `sudo` access (required for systemd units, users, and directories).

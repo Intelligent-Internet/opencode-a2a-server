@@ -2,6 +2,11 @@
 
 This document describes `scripts/init_system.sh`. The script prepares shared system prerequisites for systemd-based OpenCode + A2A deployment. It is idempotent: completed steps are automatically skipped.
 
+Navigation:
+
+- Operations hub: `docs/operations/index.md`
+- Script reference (`init_system.sh`): `docs/operations/scripts/init_system.md`
+
 ## Usage
 
 Run directly:
