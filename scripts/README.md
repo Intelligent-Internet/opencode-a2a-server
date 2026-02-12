@@ -1,54 +1,31 @@
 # scripts
 
-This directory contains local runtime scripts and systemd deployment scripts.
+Executable scripts live here. This file is the primary script-entry guide.
+
+## Start Here
+
+- [Usage guide](../docs/guide.md)
+- [Deployment guide](../docs/deployment.md)
 
 ## Which Script to Use
 
-- `init_system.sh`: prepares host prerequisites and shared directories for
-  systemd deployment. Idempotent; completed steps are skipped.
-- `start_services.sh`: local/temporary OpenCode + A2A runner. No `sudo`, no
-  systemd. Runs in foreground; `Ctrl+C` stops both processes.
-- `deploy.sh`: systemd multi-instance deployment for long-running server
-  operations.
-- `uninstall.sh`: remove one systemd instance by project name. Always prints a
-  preview first; destructive actions require explicit
-  `confirm=UNINSTALL`.
+- [`scripts/init_system.sh`](./init_system.sh):
+  bootstrap host prerequisites for systemd deployment.
+- [`scripts/deploy.sh`](./deploy.sh):
+  create/update one long-running systemd instance.
+- [`scripts/start_services.sh`](./start_services.sh):
+  local foreground runner without systemd.
+- [`scripts/uninstall.sh`](./uninstall.sh):
+  remove one deployed instance (preview-first, explicit confirm required).
 
-Why keep `start_services.sh`:
+## Quick Links
 
-- lightweight: no systemd and no `sudo`
-- convenient: defaults to local bind (`A2A_HOST=127.0.0.1`) and supports host/public URL override via env
-- observable: creates timestamped log directory for each run
+- [`scripts/init_system.sh`](./init_system.sh)
+- [`scripts/deploy.sh`](./deploy.sh)
+- [`scripts/start_services.sh`](./start_services.sh)
+- [`scripts/uninstall.sh`](./uninstall.sh)
 
-## `start_services.sh` (one-command local start)
+## Notes
 
-Prerequisites:
-
-- `opencode` is executable (`PATH` or `~/.opencode/bin/opencode`)
-- `uv` is executable
-
-Usage:
-
-```bash
-./scripts/start_services.sh
-```
-
-Common environment variables:
-
-- `A2A_HOST`: A2A bind host (default `127.0.0.1`)
-- `A2A_PORT`: A2A port (default in `docs/guide.md`)
-- `A2A_PUBLIC_URL`: public base URL exposed in agent card (default `http://${A2A_HOST}:${A2A_PORT}`)
-- `OPENCODE_LOG_LEVEL`: OpenCode log level
-- `A2A_LOG_LEVEL`: A2A log level (default in `docs/guide.md`)
-- `LOG_ROOT`: log root directory
-- `LOG_DIR`: explicit log directory (overrides timestamp path)
-
-## `init_system.sh` (host initialization)
-
-Prepares base host dependencies and shared directories for systemd deployment. See `docs/deployment.md` section "Optional System Bootstrap".
-
-## `deploy.sh` (systemd multi-instance deployment)
-
-See `docs/deployment.md`.
-
-The `deploy/` subdirectory contains systemd unit templates and instance setup scripts orchestrated by `deploy.sh`.
+- `scripts/deploy/` contains helper scripts orchestrated by `scripts/deploy.sh`.
+- Keep long-form documentation changes in `docs/` to avoid divergence.

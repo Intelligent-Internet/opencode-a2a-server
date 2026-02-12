@@ -170,12 +170,12 @@ curl -sS http://127.0.0.1:8000/ \
 
 ## Documentation
 
+- Script entry guide (init/deploy/local/uninstall):
+  [`scripts/README.md`](scripts/README.md)
 - Usage guide (configuration, auth, streaming, client examples):
-  `docs/guide.md`
-- systemd multi-instance deployment:
-  `docs/deployment.md`
-- local and operational scripts:
-  `scripts/README.md`
+  [`docs/guide.md`](docs/guide.md)
+- Systemd multi-instance deployment details:
+  [`docs/deployment.md`](docs/deployment.md)
 
 ## Development & Validation
 

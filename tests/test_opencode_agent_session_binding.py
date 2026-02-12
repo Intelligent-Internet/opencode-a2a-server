@@ -11,13 +11,12 @@ from opencode_a2a.opencode_client import OpencodeMessage
 class DummyEventQueue:
     def __init__(self) -> None:
         self.events = []
-        self.closed = False
 
     async def enqueue_event(self, event) -> None:  # noqa: ANN001
         self.events.append(event)
 
     async def close(self) -> None:
-        self.closed = True
+        return None
 
 
 class DummyOpencodeClient:
@@ -54,7 +53,8 @@ class DummyOpencodeClient:
         )
 
     async def stream_events(self, stop_event=None, *, directory: str | None = None):  # noqa: ANN001
-        if False:
+        del stop_event, directory
+        for _ in ():
             yield {}
 
 
