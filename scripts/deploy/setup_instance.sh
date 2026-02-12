@@ -1,19 +1,26 @@
 #!/usr/bin/env bash
 # Create project user, directories, and env files for systemd services.
-# Usage: ./setup_instance.sh <project_name> <github_token> <a2a_bearer_token>
+# Usage: GH_TOKEN=<token> A2A_BEARER_TOKEN=<token> ./setup_instance.sh <project_name>
 # Requires env: DATA_ROOT, OPENCODE_BIND_HOST, OPENCODE_BIND_PORT, OPENCODE_LOG_LEVEL,
 #               A2A_HOST, A2A_PORT, A2A_PUBLIC_URL.
-# Optional env: GOOGLE_GENERATIVE_AI_API_KEY (persisted into config/opencode.secret.env when provided).
+# Optional env:
+# - GOOGLE_GENERATIVE_AI_API_KEY
+# - OPENAI_API_KEY
+# - ANTHROPIC_API_KEY
+# - AZURE_OPENAI_API_KEY
+# - OPENROUTER_API_KEY
+# All provided keys are persisted into config/opencode.secret.env.
 set -euo pipefail
 
 PROJECT_NAME="${1:-}"
-GH_TOKEN="${2:-}"
-A2A_BEARER_TOKEN="${3:-}"
 
-if [[ -z "$PROJECT_NAME" || -z "$GH_TOKEN" || -z "$A2A_BEARER_TOKEN" ]]; then
-  echo "Usage: $0 <project_name> <github_token> <a2a_bearer_token>" >&2
+if [[ "$#" -ne 1 || -z "$PROJECT_NAME" ]]; then
+  echo "Usage: GH_TOKEN=<token> A2A_BEARER_TOKEN=<token> $0 <project_name>" >&2
   exit 1
 fi
+
+: "${GH_TOKEN:?GH_TOKEN is required}"
+: "${A2A_BEARER_TOKEN:?A2A_BEARER_TOKEN is required}"
 
 : "${DATA_ROOT:?}"
 : "${OPENCODE_BIND_HOST:?}"
@@ -37,6 +44,13 @@ STATE_DIR="${LOCAL_DIR}/state"
 OPENCODE_LOCAL_SHARE_DIR="${PROJECT_DIR}/.local/share/opencode"
 OPENCODE_BIN_DIR="${OPENCODE_LOCAL_SHARE_DIR}/bin"
 DATA_DIR="${PROJECT_DIR}/.local/share/opencode/storage/session"
+SECRET_ENV_KEYS=(
+  GOOGLE_GENERATIVE_AI_API_KEY
+  OPENAI_API_KEY
+  ANTHROPIC_API_KEY
+  AZURE_OPENAI_API_KEY
+  OPENROUTER_API_KEY
+)
 
 # DATA_ROOT must be traversable by the per-project system user. In hardened
 # deployments, using a non-traversable DATA_ROOT (missing o+x) will break
@@ -126,7 +140,7 @@ sudo install -m 700 -o "$PROJECT_NAME" -g "$PROJECT_NAME" "$askpass_tmp" "$ASKPA
 rm -f "$askpass_tmp"
 
 git_author_name="OpenCode-${PROJECT_NAME}"
-git_author_email="${PROJECT_NAME}@internal"
+git_author_email="${PROJECT_NAME}@example.com"
 if [[ -n "${GIT_IDENTITY_NAME:-}" ]]; then
   git_author_name="${GIT_IDENTITY_NAME}"
 fi
@@ -158,14 +172,22 @@ opencode_env_tmp="$(mktemp)"
 sudo install -m 600 -o root -g root "$opencode_env_tmp" "$CONFIG_DIR/opencode.env"
 rm -f "$opencode_env_tmp"
 
-if [[ -n "${GOOGLE_GENERATIVE_AI_API_KEY:-}" ]]; then
-  opencode_secret_env_tmp="$(mktemp)"
-  {
-    echo "GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY}"
-  } >"$opencode_secret_env_tmp"
+opencode_secret_env_tmp="$(mktemp)"
+has_secret_entry=0
+for key in "${SECRET_ENV_KEYS[@]}"; do
+  value="${!key:-}"
+  if [[ -z "$value" && -f "$OPENCODE_SECRET_ENV_FILE" ]]; then
+    value="$(sed -n "s/^${key}=//p" "$OPENCODE_SECRET_ENV_FILE" | head -n 1)"
+  fi
+  if [[ -n "$value" ]]; then
+    printf '%s=%s\n' "$key" "$value" >>"$opencode_secret_env_tmp"
+    has_secret_entry=1
+  fi
+done
+if [[ "$has_secret_entry" -eq 1 ]]; then
   sudo install -m 600 -o root -g root "$opencode_secret_env_tmp" "$OPENCODE_SECRET_ENV_FILE"
-  rm -f "$opencode_secret_env_tmp"
 fi
+rm -f "$opencode_secret_env_tmp"
 
 a2a_env_tmp="$(mktemp)"
 {
