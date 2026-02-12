@@ -26,7 +26,7 @@ class DummyOpencodeClient:
         return self._messages_payload
 
 
-def _settings(*, token: str, log_payloads: bool) -> Settings:
+def _settings(*, token: str, log_payloads: bool, log_body_limit: int = 0) -> Settings:
     return Settings(
         opencode_base_url="http://127.0.0.1:4096",
         opencode_directory=None,
@@ -45,7 +45,7 @@ def _settings(*, token: str, log_payloads: bool) -> Settings:
         a2a_streaming=True,
         a2a_log_level="DEBUG",
         a2a_log_payloads=log_payloads,
-        a2a_log_body_limit=0,
+        a2a_log_body_limit=log_body_limit,
         a2a_documentation_url=None,
         a2a_host="127.0.0.1",
         a2a_port=8000,
@@ -433,3 +433,58 @@ async def test_session_query_extension_does_not_log_response_bodies(monkeypatch,
     # The response contains SECRET_HISTORY but the log middleware must not print bodies for
     # opencode.sessions.* operations.
     assert "SECRET_HISTORY" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_payload_logging_skips_non_text_request_body(monkeypatch, caplog):
+    import opencode_a2a_serve.app as app_module
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyOpencodeClient)
+    caplog.set_level(logging.DEBUG, logger="opencode_a2a_serve.app")
+
+    app = app_module.create_app(_settings(token="t-1", log_payloads=True, log_body_limit=64))
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/",
+            headers={
+                "Authorization": "Bearer t-1",
+                "Content-Type": "application/octet-stream",
+            },
+            content=b"\x00\x01\x02\x03",
+        )
+        assert resp.status_code < 500
+
+    assert "body=[omitted non-text content-type=application/octet-stream]" in caplog.text
+    assert "\\x00\\x01\\x02\\x03" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_payload_logging_skips_oversized_request_body(monkeypatch, caplog):
+    import opencode_a2a_serve.app as app_module
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyOpencodeClient)
+    caplog.set_level(logging.DEBUG, logger="opencode_a2a_serve.app")
+
+    app = app_module.create_app(_settings(token="t-1", log_payloads=True, log_body_limit=64))
+
+    oversized_body = (
+        '{"jsonrpc":"2.0","id":1,"method":"opencode.sessions.list","params":{"page":1,"size":10}}'
+        + (" " * 256)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/",
+            headers={
+                "Authorization": "Bearer t-1",
+                "Content-Type": "application/json",
+            },
+            content=oversized_body,
+        )
+        assert resp.status_code == 200
+
+    assert "body=[omitted content-length=" in caplog.text
+    assert "exceeds limit=64" in caplog.text

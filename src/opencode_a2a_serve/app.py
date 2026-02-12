@@ -297,24 +297,91 @@ def create_app(settings: Settings) -> FastAPI:
             return method
         return None
 
+    def _parse_content_length(value: str | None) -> int | None:
+        if value is None:
+            return None
+        try:
+            parsed = int(value)
+        except ValueError:
+            return None
+        return parsed if parsed >= 0 else None
+
+    def _normalize_content_type(value: str | None) -> str:
+        if not value:
+            return ""
+        return value.split(";", 1)[0].strip().lower()
+
+    def _is_textual_content_type(content_type: str) -> bool:
+        if not content_type:
+            return False
+        if content_type.startswith("text/"):
+            return True
+        if content_type in {
+            "application/json",
+            "application/xml",
+            "application/x-www-form-urlencoded",
+        }:
+            return True
+        return content_type.endswith("+json") or content_type.endswith("+xml")
+
+    def _decode_payload_for_log(body: bytes, *, limit: int) -> str:
+        if limit > 0 and len(body) > limit:
+            preview = body[:limit].decode("utf-8", errors="replace")
+            return f"{preview}...[truncated]"
+        return body.decode("utf-8", errors="replace")
+
     @app.middleware("http")
     async def log_payloads(request: Request, call_next):
         if not settings.a2a_log_payloads:
             return await call_next(request)
 
-        body = await request.body()
-        request._body = body  # allow downstream to read again
         path = request.url.path
-        # Detect session-query JSON-RPC methods regardless of deployment prefixes/root_path.
-        sensitive_method = _detect_opencode_session_query_method(body)
+        limit = settings.a2a_log_body_limit
+        content_type = _normalize_content_type(request.headers.get("content-type"))
+        content_length = _parse_content_length(request.headers.get("content-length"))
 
-        if sensitive_method:
-            logger.debug("A2A request %s %s method=%s", request.method, path, sensitive_method)
-            response = await call_next(request)
-            if isinstance(response, StreamingResponse):
+        sensitive_method: str | None = None
+        can_decode_body = _is_textual_content_type(content_type)
+        if not can_decode_body:
+            logger.debug(
+                "A2A request %s %s body=[omitted non-text content-type=%s]",
+                request.method,
+                path,
+                content_type or "unknown",
+            )
+        elif limit > 0 and content_length is not None and content_length > limit:
+            logger.debug(
+                "A2A request %s %s body=[omitted content-length=%s exceeds limit=%s]",
+                request.method,
+                path,
+                content_length,
+                limit,
+            )
+        else:
+            body = await request.body()
+            request._body = body  # allow downstream to read again
+            # Detect session-query JSON-RPC methods regardless of deployment prefixes/root_path.
+            sensitive_method = _detect_opencode_session_query_method(body)
+            if sensitive_method:
+                logger.debug("A2A request %s %s method=%s", request.method, path, sensitive_method)
+            else:
+                logger.debug(
+                    "A2A request %s %s body=%s",
+                    request.method,
+                    path,
+                    _decode_payload_for_log(body, limit=limit),
+                )
+
+        response = await call_next(request)
+        if isinstance(response, StreamingResponse):
+            if sensitive_method:
                 logger.debug("A2A response %s streaming method=%s", path, sensitive_method)
-                return response
-            response_body = getattr(response, "body", b"") or b""
+            else:
+                logger.debug("A2A response %s streaming", path)
+            return response
+
+        response_body = getattr(response, "body", b"") or b""
+        if sensitive_method:
             logger.debug(
                 "A2A response %s status=%s bytes=%s method=%s",
                 path,
@@ -324,31 +391,22 @@ def create_app(settings: Settings) -> FastAPI:
             )
             return response
 
-        body_text = body.decode("utf-8", errors="replace")
-        limit = settings.a2a_log_body_limit
-        if limit > 0 and len(body_text) > limit:
-            body_text = f"{body_text[:limit]}...[truncated]"
-        logger.debug(
-            "A2A request %s %s body=%s",
-            request.method,
-            request.url.path,
-            body_text,
-        )
-
-        response = await call_next(request)
-        if isinstance(response, StreamingResponse):
-            logger.debug("A2A response %s streaming", request.url.path)
+        response_content_type = _normalize_content_type(response.headers.get("content-type"))
+        if not _is_textual_content_type(response_content_type):
+            logger.debug(
+                "A2A response %s status=%s bytes=%s body=[omitted non-text content-type=%s]",
+                path,
+                response.status_code,
+                len(response_body),
+                response_content_type or "unknown",
+            )
             return response
 
-        response_body = getattr(response, "body", b"") or b""
-        resp_text = response_body.decode("utf-8", errors="replace")
-        if limit > 0 and len(resp_text) > limit:
-            resp_text = f"{resp_text[:limit]}...[truncated]"
         logger.debug(
             "A2A response %s status=%s body=%s",
-            request.url.path,
+            path,
             response.status_code,
-            resp_text,
+            _decode_payload_for_log(response_body, limit=limit),
         )
         return response
 
