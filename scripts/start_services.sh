@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 A2A_PORT="${A2A_PORT:-8000}"
+A2A_HOST="${A2A_HOST:-127.0.0.1}"
 OPENCODE_LOG_LEVEL="${OPENCODE_LOG_LEVEL:-DEBUG}"
 A2A_LOG_LEVEL="${A2A_LOG_LEVEL:-DEBUG}"
 LOG_ROOT="${LOG_ROOT:-${ROOT_DIR}/logs}"
@@ -13,6 +14,7 @@ LOG_DIR="${LOG_DIR:-${LOG_ROOT}/${TIMESTAMP}}"
 mkdir -p "$LOG_DIR"
 OPENCODE_LOG="${OPENCODE_LOG:-${LOG_DIR}/opencode_serve.log}"
 A2A_LOG="${A2A_LOG:-${LOG_DIR}/opencode_a2a.log}"
+A2A_PUBLIC_URL="${A2A_PUBLIC_URL:-http://${A2A_HOST}:${A2A_PORT}}"
 
 kill_existing() {
   local pattern="$1"
@@ -34,17 +36,6 @@ kill_existing() {
     fi
   fi
 }
-
-if ! command -v tailscale >/dev/null 2>&1; then
-  echo "tailscale not found in PATH" >&2
-  exit 1
-fi
-
-TAILSCALE_IP="$(tailscale ip -4 | head -n 1 | tr -d '[:space:]')"
-if [[ -z "$TAILSCALE_IP" ]]; then
-  echo "failed to resolve tailscale ip -4" >&2
-  exit 1
-fi
 
 OPENCODE_CMD=""
 if command -v opencode >/dev/null 2>&1; then
@@ -71,9 +62,9 @@ echo "Starting opencode serve..."
 OPENCODE_PID=$!
 echo "opencode serve pid: ${OPENCODE_PID} (log: $OPENCODE_LOG)"
 
-echo "Starting A2A server on ${TAILSCALE_IP}:${A2A_PORT}..."
-A2A_HOST="$TAILSCALE_IP" \
-A2A_PUBLIC_URL="http://${TAILSCALE_IP}:${A2A_PORT}" \
+echo "Starting A2A server on ${A2A_HOST}:${A2A_PORT}..."
+A2A_HOST="$A2A_HOST" \
+A2A_PUBLIC_URL="$A2A_PUBLIC_URL" \
 A2A_LOG_LEVEL="$A2A_LOG_LEVEL" \
 uv run opencode-a2a-serve --log-level "$A2A_LOG_LEVEL" >"$A2A_LOG" 2>&1 &
 A2A_PID=$!
@@ -96,8 +87,8 @@ trap cleanup EXIT INT TERM HUP
 cat <<INFO
 
 A2A service endpoints:
-- Agent Card: http://${TAILSCALE_IP}:${A2A_PORT}/.well-known/agent-card.json
-- REST API:   http://${TAILSCALE_IP}:${A2A_PORT}/v1/message:send
+- Agent Card: ${A2A_PUBLIC_URL}/.well-known/agent-card.json
+- REST API:   ${A2A_PUBLIC_URL}/v1/message:send
 Log directory: ${LOG_DIR}
 
 INFO

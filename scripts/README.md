@@ -17,14 +17,13 @@ This directory contains local runtime scripts and systemd deployment scripts.
 Why keep `start_services.sh`:
 
 - lightweight: no systemd and no `sudo`
-- convenient: auto-detects Tailscale IPv4 and sets `A2A_PUBLIC_URL`
+- convenient: defaults to local bind (`A2A_HOST=127.0.0.1`) and supports host/public URL override via env
 - observable: creates timestamped log directory for each run
 
 ## `start_services.sh` (one-command local start)
 
 Prerequisites:
 
-- `tailscale` is installed and `tailscale ip -4` works
 - `opencode` is executable (`PATH` or `~/.opencode/bin/opencode`)
 - `uv` is executable
 
@@ -36,7 +35,9 @@ Usage:
 
 Common environment variables:
 
+- `A2A_HOST`: A2A bind host (default `127.0.0.1`)
 - `A2A_PORT`: A2A port (default in `docs/guide.md`)
+- `A2A_PUBLIC_URL`: public base URL exposed in agent card (default `http://${A2A_HOST}:${A2A_PORT}`)
 - `OPENCODE_LOG_LEVEL`: OpenCode log level
 - `A2A_LOG_LEVEL`: A2A log level (default in `docs/guide.md`)
 - `LOG_ROOT`: log root directory
