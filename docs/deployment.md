@@ -4,8 +4,7 @@ This guide explains how to deploy OpenCode + A2A as isolated per-project instanc
 
 Navigation:
 
-- Operations hub: `docs/operations/index.md`
-- Script reference index: `docs/operations/scripts/index.md`
+- [Operations hub](operations/index.md)
 
 ## Prerequisites
 

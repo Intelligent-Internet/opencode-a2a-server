@@ -5,19 +5,16 @@ under `docs/`.
 
 ## Start Here
 
-- Operations hub: `docs/operations/index.md`
-- Script index: `docs/operations/scripts/index.md`
+- [Operations hub](../docs/operations/index.md)
+- [Usage guide](../docs/guide.md)
+- [Deployment guide](../docs/deployment.md)
 
 ## Quick Links
 
-- `scripts/init_system.sh`:
-  `docs/operations/scripts/init_system.md`
-- `scripts/deploy.sh`:
-  `docs/operations/scripts/deploy.md`
-- `scripts/start_services.sh`:
-  `docs/operations/scripts/start_services.md`
-- `scripts/uninstall.sh`:
-  `docs/operations/scripts/uninstall.md`
+- [`scripts/init_system.sh`](./init_system.sh)
+- [`scripts/deploy.sh`](./deploy.sh)
+- [`scripts/start_services.sh`](./start_services.sh)
+- [`scripts/uninstall.sh`](./uninstall.sh)
 
 ## Notes
 

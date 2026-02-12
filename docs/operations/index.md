@@ -4,22 +4,25 @@ This hub organizes runtime and deployment documentation by operator workflow.
 
 ## Task-Based Navigation
 
-1. Bootstrap a host for systemd deployment
-   - Overview: `docs/init_system.md`
-   - Script reference: `docs/operations/scripts/init_system.md`
-2. Deploy a project instance (systemd)
-   - Main guide: `docs/deployment.md`
-   - Script reference: `docs/operations/scripts/deploy.md`
+1. Bootstrap host prerequisites
+   - [System Bootstrap Script (`init_system.sh`)](../init_system.md)
+2. Deploy or update a systemd instance
+   - [Deployment Guide](../deployment.md)
+   - [Quick Deploy](../deployment.md#quick-deploy)
 3. Run services locally without systemd
-   - Script reference: `docs/operations/scripts/start_services.md`
+   - [scripts/start_services.sh](../../scripts/start_services.sh)
+   - [Runtime configuration](../guide.md#environment-variables)
 4. Remove one deployed instance
-   - Script reference: `docs/operations/scripts/uninstall.md`
+   - [Uninstall One Instance](../deployment.md#uninstall-one-instance)
 
-## Script Catalog
+## Script Entry Points
 
-- Full script index: `docs/operations/scripts/index.md`
+- [scripts/init_system.sh](../../scripts/init_system.sh)
+- [scripts/deploy.sh](../../scripts/deploy.sh)
+- [scripts/start_services.sh](../../scripts/start_services.sh)
+- [scripts/uninstall.sh](../../scripts/uninstall.sh)
 
 ## Documentation Ownership
 
-- Canonical operational docs are under `docs/`.
-- `scripts/` contains executable scripts and only minimal entry notes.
+- Canonical operational documentation is kept under `docs/`.
+- `scripts/` contains executable code and only lightweight pointers.

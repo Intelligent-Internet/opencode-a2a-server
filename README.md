@@ -171,13 +171,13 @@ curl -sS http://127.0.0.1:8000/ \
 ## Documentation
 
 - Usage guide (configuration, auth, streaming, client examples):
-  `docs/guide.md`
+  [`docs/guide.md`](docs/guide.md)
 - Operations hub (bootstrap/deploy/local run/uninstall):
-  `docs/operations/index.md`
-- systemd multi-instance deployment details:
-  `docs/deployment.md`
-- script reference index:
-  `docs/operations/scripts/index.md`
+  [`docs/operations/index.md`](docs/operations/index.md)
+- Systemd multi-instance deployment details:
+  [`docs/deployment.md`](docs/deployment.md)
+- Script entry notes:
+  [`scripts/README.md`](scripts/README.md)
 
 ## Development & Validation
 

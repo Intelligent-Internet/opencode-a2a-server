@@ -4,8 +4,7 @@ This document describes `scripts/init_system.sh`. The script prepares shared sys
 
 Navigation:
 
-- Operations hub: `docs/operations/index.md`
-- Script reference (`init_system.sh`): `docs/operations/scripts/init_system.md`
+- [Operations hub](operations/index.md)
 
 ## Usage
 
