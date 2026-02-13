@@ -61,9 +61,9 @@ class _StreamOutputState:
         self.response_message_id = value or None
 
     def matches_expected_message(self, message_id: str | None) -> bool:
-        if not self.response_message_id:
-            return True
         if not message_id:
+            return False
+        if not self.response_message_id:
             return True
         return message_id == self.response_message_id
 

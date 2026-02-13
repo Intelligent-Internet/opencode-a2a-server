@@ -92,7 +92,14 @@ def _context(
     return RequestContext(request=params, task_id=task_id, context_id=context_id)
 
 
-def _event(*, session_id: str, role: str | None, part_type: str, delta: str) -> dict:
+def _event(
+    *,
+    session_id: str,
+    role: str | None,
+    part_type: str,
+    delta: str,
+    message_id: str | None = "msg-1",
+) -> dict:
     properties: dict = {
         "part": {
             "sessionID": session_id,
@@ -102,6 +109,8 @@ def _event(*, session_id: str, role: str | None, part_type: str, delta: str) -> 
     }
     if role is not None:
         properties["part"]["role"] = role
+    if message_id is not None:
+        properties["part"]["messageID"] = message_id
     return {
         "type": "message.part.updated",
         "properties": properties,
@@ -217,11 +226,43 @@ async def test_execute_serializes_send_message_per_session() -> None:
     metadata = {"opencode_session_id": "ses-shared"}
 
     await asyncio.gather(
-        executor.execute(_context(task_id="task-4", context_id="ctx-4", text="hello", metadata=metadata), queue_1),
-        executor.execute(_context(task_id="task-5", context_id="ctx-5", text="world", metadata=metadata), queue_2),
+        executor.execute(
+            _context(task_id="task-4", context_id="ctx-4", text="hello", metadata=metadata), queue_1
+        ),
+        executor.execute(
+            _context(task_id="task-5", context_id="ctx-5", text="world", metadata=metadata), queue_2
+        ),
     )
 
     assert client.max_in_flight_send == 1
+
+
+@pytest.mark.asyncio
+async def test_streaming_drops_events_without_message_id_and_falls_back_to_snapshot() -> None:
+    client = DummyStreamingClient(
+        stream_events_payload=[
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="text",
+                delta="stream chunk without id",
+                message_id=None,
+            ),
+        ],
+        response_text="final answer from send_message",
+    )
+    executor = OpencodeAgentExecutor(client, streaming_enabled=True)
+    executor._should_stream = lambda context: True  # type: ignore[method-assign]
+    queue = DummyEventQueue()
+
+    await executor.execute(_context(task_id="task-6", context_id="ctx-6", text="hello"), queue)
+
+    updates = _artifact_updates(queue)
+    assert len(updates) == 1
+    update = updates[0]
+    assert _part_text(update) == "final answer from send_message"
+    assert update.artifact.metadata["opencode"]["source"] == "final_snapshot"
+    assert update.artifact.metadata["opencode"]["channel"] == "final_answer"
 
 
 def _unique(items: list[str]) -> list[str]:
