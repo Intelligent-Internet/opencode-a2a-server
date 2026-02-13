@@ -38,12 +38,9 @@ Additional notes:
 ## Capabilities
 
 - Standard A2A chat: forwards `message:send` / `message:stream` to OpenCode.
-- SSE streaming: `/v1/message:stream` emits incremental
-  `TaskArtifactUpdateEvent` with channel metadata
-  (`reasoning` / `tool_call` / `final_answer`), filters user/system
-  role updates, and only emits a final snapshot when stream chunks did
-  not already produce the same final answer. Stream closes with
-  `TaskStatusUpdateEvent(final=true)`.
+- SSE streaming: `/v1/message:stream` emits incremental updates and then
+  closes with `TaskStatusUpdateEvent(final=true)`. For detailed streaming
+  contract and event semantics, see `docs/guide.md`.
 - Re-subscribe after disconnect: `GET /v1/tasks/{task_id}:subscribe`
   (available while the task is not in a terminal state).
 - Session continuation contract: clients can explicitly bind to an existing
