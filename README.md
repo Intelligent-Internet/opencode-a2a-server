@@ -1,5 +1,9 @@
 # opencode-a2a-serve
 
+> **Turning OpenCode into a production-ready, stateful Agent API with REST/JSON-RPC endpoints, authentication, streaming, and session management.**
+>
+> **Tech Stack:** Python 3.11+ | FastAPI | A2A SDK | `uv` | `pytest`
+
 `opencode-a2a-serve` is an adapter layer that exposes OpenCode as an A2A service (FastAPI + A2A SDK). It provides:
 
 - A2A HTTP+JSON (REST): `/v1/message:send`, `/v1/message:stream`,
@@ -57,6 +61,8 @@ Additional notes:
   - JSON-RPC (`method=message/send`): `params.message.parts` with role values `user` / `agent`
 
 ## Quick Start
+
+*Prerequisites: Ensure you have [`uv`](https://github.com/astral-sh/uv) installed and an accessible LLM provider configured in your OpenCode environment.*
 
 1. Start OpenCode:
 
