@@ -722,6 +722,9 @@ class OpencodeAgentExecutor(AgentExecutor):
         raw_text_buffers: dict[str, str] = {}
         direct_buffers: dict[str, str] = {}
         parsers: dict[str, _EmbeddedStreamParser] = {}
+        parser_message_ids: dict[str, str | None] = {}
+        part_block_types: dict[str, BlockType] = {}
+        delta_seen_buffers: set[str] = set()
         backoff = 0.5
         max_backoff = 5.0
 
@@ -777,7 +780,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                         if stop_event.is_set():
                             break
                         event_type = event.get("type")
-                        if event_type != "message.part.updated":
+                        if event_type not in {"message.part.updated", "message.part.delta"}:
                             continue
                         props = event.get("properties")
                         if not isinstance(props, Mapping):
@@ -790,20 +793,41 @@ class OpencodeAgentExecutor(AgentExecutor):
                         role = _extract_stream_role(part, props)
                         if role in {"user", "system"}:
                             continue
-                        block_type = _classify_stream_block_type(part, props)
                         delta = props.get("delta")
                         message_id = _extract_stream_message_id(part, props)
+                        part_id = _extract_stream_part_id(part, props)
+                        if event_type == "message.part.delta" and not part_id:
+                            continue
+                        if part_id and event_type == "message.part.updated":
+                            part_block_types[part_id] = _classify_stream_block_type(part, props)
+                        block_type = (
+                            part_block_types.get(part_id)
+                            if part_id
+                            else _classify_stream_block_type(part, props)
+                        )
+                        if block_type is None:
+                            continue
                         message_key = message_id or "unknown"
+                        buffer_identity = part_id or message_key
 
                         chunks: list[_NormalizedStreamChunk] = []
-                        if block_type == BlockType.TEXT and part.get("type") == "text":
-                            parser = parsers.setdefault(message_key, _EmbeddedStreamParser())
-                            raw_key = f"raw:{message_key}"
+                        if block_type == BlockType.TEXT and (
+                            part.get("type") == "text" or event_type == "message.part.delta"
+                        ):
+                            parser = parsers.setdefault(buffer_identity, _EmbeddedStreamParser())
+                            parser_message_ids[buffer_identity] = message_id
+                            raw_key = f"raw:{buffer_identity}"
                             previous_raw = raw_text_buffers.get(raw_key, "")
                             incoming_text: str | None = None
                             append = True
                             source = "delta"
-                            if isinstance(delta, str) and delta:
+                            if event_type == "message.part.delta":
+                                if props.get("field") != "text":
+                                    continue
+                                if isinstance(delta, str) and delta:
+                                    incoming_text = delta
+                                    source = "delta_event"
+                            elif isinstance(delta, str) and delta:
                                 incoming_text = delta
                             elif isinstance(part.get("text"), str):
                                 next_text = part["text"]
@@ -822,9 +846,15 @@ class OpencodeAgentExecutor(AgentExecutor):
 
                             if append:
                                 raw_text_buffers[raw_key] = f"{previous_raw}{incoming_text}"
+                                delta_seen_buffers.add(raw_key)
                             else:
                                 raw_text_buffers[raw_key] = incoming_text
                                 parser.reset()
+                                if raw_key in delta_seen_buffers:
+                                    # Snapshot reset after emitted deltas:
+                                    # suppress to avoid duplicate append.
+                                    parser.feed(incoming_text)
+                                    continue
 
                             parsed_segments = parser.feed(incoming_text)
                             for idx, segment in enumerate(parsed_segments):
@@ -843,11 +873,20 @@ class OpencodeAgentExecutor(AgentExecutor):
                             chunk_text: str | None = None
                             append = True
                             source = "delta"
-                            buffer_key = f"{block_type}:{message_key}"
+                            buffer_key = f"{buffer_identity}:{block_type.value}"
                             previous = direct_buffers.get(buffer_key, "")
-                            if isinstance(delta, str) and delta:
+                            if event_type == "message.part.delta":
+                                if props.get("field") != "text":
+                                    continue
+                                if isinstance(delta, str) and delta:
+                                    chunk_text = delta
+                                    source = "delta_event"
+                                    direct_buffers[buffer_key] = f"{previous}{delta}"
+                                    delta_seen_buffers.add(buffer_key)
+                            elif isinstance(delta, str) and delta:
                                 chunk_text = delta
                                 direct_buffers[buffer_key] = f"{previous}{delta}"
+                                delta_seen_buffers.add(buffer_key)
                             elif isinstance(part.get("text"), str):
                                 next_text = part["text"]
                                 if next_text != previous:
@@ -856,6 +895,11 @@ class OpencodeAgentExecutor(AgentExecutor):
                                         append = True
                                         source = "part_text_diff"
                                     else:
+                                        # Snapshot reset after emitted deltas:
+                                        # suppress to avoid duplicate append.
+                                        if buffer_key in delta_seen_buffers:
+                                            direct_buffers[buffer_key] = next_text
+                                            continue
                                         chunk_text = next_text
                                         append = False
                                         source = "part_text_reset"
@@ -879,8 +923,8 @@ class OpencodeAgentExecutor(AgentExecutor):
 
                     if not stop_event.is_set():
                         eof_chunks: list[_NormalizedStreamChunk] = []
-                        for message_key, parser in parsers.items():
-                            message_id = None if message_key == "unknown" else message_key
+                        for parser_key, parser in parsers.items():
+                            message_id = parser_message_ids.get(parser_key)
                             for segment in parser.flush_eof():
                                 eof_chunks.append(
                                     _NormalizedStreamChunk(
@@ -1006,6 +1050,10 @@ def _extract_stream_session_id(part: Mapping[str, Any], props: Mapping[str, Any]
         value = part.get(key)
         if isinstance(value, str) and value:
             return value
+    for key in session_keys:
+        value = props.get(key)
+        if isinstance(value, str) and value:
+            return value
     message = props.get("message")
     if isinstance(message, Mapping):
         for key in session_keys:
@@ -1045,6 +1093,23 @@ def _extract_stream_message_id(part: Mapping[str, Any], props: Mapping[str, Any]
                     normalized = value.strip()
                     if normalized:
                         return normalized
+    return None
+
+
+def _extract_stream_part_id(part: Mapping[str, Any], props: Mapping[str, Any]) -> str | None:
+    part_keys = ("partID", "partId", "part_id", "id")
+    for key in part_keys:
+        value = part.get(key)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
+    for key in part_keys:
+        value = props.get(key)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
     return None
 
 

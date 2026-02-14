@@ -99,6 +99,8 @@ def _event(
     part_type: str,
     delta: str,
     message_id: str | None = "msg-1",
+    part_id: str | None = None,
+    text: str | None = None,
 ) -> dict:
     properties: dict = {
         "part": {
@@ -111,8 +113,33 @@ def _event(
         properties["part"]["role"] = role
     if message_id is not None:
         properties["part"]["messageID"] = message_id
+    if part_id is not None:
+        properties["part"]["id"] = part_id
+    if text is not None:
+        properties["part"]["text"] = text
     return {
         "type": "message.part.updated",
+        "properties": properties,
+    }
+
+
+def _delta_event(
+    *,
+    session_id: str,
+    part_id: str,
+    delta: str,
+    message_id: str | None = "msg-1",
+) -> dict:
+    properties: dict = {
+        "sessionID": session_id,
+        "partID": part_id,
+        "field": "text",
+        "delta": delta,
+    }
+    if message_id is not None:
+        properties["messageID"] = message_id
+    return {
+        "type": "message.part.delta",
         "properties": properties,
     }
 
@@ -437,3 +464,87 @@ async def test_streaming_never_resets_single_artifact_after_first_chunk() -> Non
     assert len(updates) >= 2
     assert updates[0].append is False
     assert all(ev.append is True for ev in updates[1:])
+
+
+@pytest.mark.asyncio
+async def test_streaming_suppresses_reasoning_snapshot_reset_after_delta() -> None:
+    client = DummyStreamingClient(
+        stream_events_payload=[
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="reasoning",
+                delta="",
+                part_id="prt-r1",
+                text="",
+            ),
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="reasoning",
+                delta="reasoning line\n\n",
+                part_id="prt-r1",
+            ),
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="reasoning",
+                delta="",
+                part_id="prt-r1",
+                text="reasoning line",
+            ),
+        ],
+        response_text="answer",
+    )
+    executor = OpencodeAgentExecutor(client, streaming_enabled=True)
+    executor._should_stream = lambda context: True  # type: ignore[method-assign]
+    queue = DummyEventQueue()
+
+    await executor.execute(
+        _context(task_id="task-reason-reset", context_id="ctx-reason-reset", text="go"),
+        queue,
+    )
+
+    reasoning_updates = [
+        event
+        for event in _artifact_updates(queue)
+        if event.artifact.metadata["opencode"]["block_type"] == "reasoning"
+    ]
+    assert len(reasoning_updates) == 1
+    assert _part_text(reasoning_updates[0]) == "reasoning line\n\n"
+
+
+@pytest.mark.asyncio
+async def test_streaming_supports_message_part_delta_events() -> None:
+    client = DummyStreamingClient(
+        stream_events_payload=[
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="reasoning",
+                delta="",
+                part_id="prt-r2",
+                text="",
+            ),
+            _delta_event(session_id="ses-1", part_id="prt-r2", delta="first "),
+            _delta_event(session_id="ses-1", part_id="prt-r2", delta="second"),
+        ],
+        response_text="answer",
+    )
+    executor = OpencodeAgentExecutor(client, streaming_enabled=True)
+    executor._should_stream = lambda context: True  # type: ignore[method-assign]
+    queue = DummyEventQueue()
+
+    await executor.execute(
+        _context(task_id="task-delta", context_id="ctx-delta", text="go"),
+        queue,
+    )
+
+    reasoning_updates = [
+        event
+        for event in _artifact_updates(queue)
+        if event.artifact.metadata["opencode"]["block_type"] == "reasoning"
+    ]
+    assert reasoning_updates
+    merged = "".join(_part_text(ev) for ev in reasoning_updates)
+    assert merged == "first second"
