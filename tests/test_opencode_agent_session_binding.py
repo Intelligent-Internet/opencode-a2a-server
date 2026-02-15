@@ -1,8 +1,10 @@
 import asyncio
 
 import pytest
+from a2a.types import Task
 
 from opencode_a2a_serve.agent import OpencodeAgentExecutor
+from opencode_a2a_serve.opencode_client import OpencodeMessage
 from tests.helpers import DummyChatOpencodeClient, DummyEventQueue, make_request_context
 
 
@@ -83,3 +85,37 @@ async def test_agent_dedupes_concurrent_session_creates_per_context() -> None:
     await asyncio.gather(run_one("t-1"), run_one("t-2"), run_one("t-3"))
 
     assert client.created_sessions == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_uses_stable_fallback_message_id_when_upstream_missing_message_id() -> None:
+    class MissingMessageIdClient(DummyChatOpencodeClient):
+        async def send_message(
+            self,
+            session_id: str,
+            text: str,
+            *,
+            directory: str | None = None,
+            timeout_override=None,  # noqa: ANN001
+        ) -> OpencodeMessage:
+            del text, directory, timeout_override
+            self.sent_session_ids.append(session_id)
+            return OpencodeMessage(
+                text="echo:hello",
+                session_id=session_id,
+                message_id=None,
+                raw={},
+            )
+
+    client = MissingMessageIdClient()
+    executor = OpencodeAgentExecutor(client, streaming_enabled=False)
+    q = DummyEventQueue()
+
+    await executor.execute(
+        make_request_context(task_id="t-fallback", context_id="c-fallback", text="hello"),
+        q,
+    )
+
+    task = next(event for event in q.events if isinstance(event, Task))
+    assert task.metadata["opencode"]["message_id"] == "t-fallback:c-fallback:assistant"
+    assert task.status.message.message_id == "t-fallback:c-fallback:assistant"

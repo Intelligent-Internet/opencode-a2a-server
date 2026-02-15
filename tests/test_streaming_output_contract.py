@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from a2a.types import TaskArtifactUpdateEvent
+from a2a.types import TaskArtifactUpdateEvent, TaskStatusUpdateEvent
 
 from opencode_a2a_serve.agent import OpencodeAgentExecutor
 from opencode_a2a_serve.opencode_client import OpencodeMessage
@@ -14,7 +14,7 @@ class DummyStreamingClient:
         *,
         stream_events_payload: list[dict],
         response_text: str,
-        response_message_id: str = "msg-1",
+        response_message_id: str | None = "msg-1",
         send_delay: float = 0.02,
     ) -> None:
         self._stream_events_payload = stream_events_payload
@@ -167,6 +167,8 @@ async def test_streaming_filters_user_echo_and_emits_single_artifact_block_types
     assert len(set(artifact_ids)) == 1
     sequences = [event.artifact.metadata["opencode"]["sequence"] for event in updates]
     assert sequences == list(range(1, len(updates) + 1))
+    event_ids = [event.artifact.metadata["opencode"]["event_id"] for event in updates]
+    assert event_ids == [f"task-1:ctx-1:task-1:stream:{seq}" for seq in sequences]
 
 
 @pytest.mark.asyncio
@@ -272,6 +274,7 @@ async def test_streaming_drops_events_without_message_id_and_falls_back_to_snaps
             ),
         ],
         response_text="final answer from send_message",
+        response_message_id=None,
     )
     executor = OpencodeAgentExecutor(client, streaming_enabled=True)
     executor._should_stream = lambda context: True  # type: ignore[method-assign]
@@ -287,6 +290,13 @@ async def test_streaming_drops_events_without_message_id_and_falls_back_to_snaps
     assert _part_text(update) == "final answer from send_message"
     assert update.artifact.metadata["opencode"]["source"] == "final_snapshot"
     assert update.artifact.metadata["opencode"]["block_type"] == "text"
+    assert update.artifact.metadata["opencode"]["message_id"] == "task-6:ctx-6:assistant"
+    assert update.artifact.metadata["opencode"]["event_id"] == "task-6:ctx-6:task-6:stream:1"
+    final_status = [
+        event for event in queue.events if isinstance(event, TaskStatusUpdateEvent) and event.final
+    ][-1]
+    assert final_status.metadata["opencode"]["message_id"] == "task-6:ctx-6:assistant"
+    assert final_status.metadata["opencode"]["event_id"] == "task-6:ctx-6:task-6:stream:status"
 
 
 def _unique(items: list[str]) -> list[str]:

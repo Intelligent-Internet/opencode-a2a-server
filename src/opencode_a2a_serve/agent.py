@@ -69,6 +69,8 @@ class _StreamPartState:
 @dataclass
 class _StreamOutputState:
     user_text: str
+    stable_message_id: str
+    event_id_namespace: str
     content_buffers: dict[BlockType, str] = field(default_factory=dict)
     saw_any_chunk: bool = False
     emitted_stream_chunk: bool = False
@@ -120,6 +122,16 @@ class _StreamOutputState:
     def next_sequence(self) -> int:
         self.sequence += 1
         return self.sequence
+
+    def resolve_message_id(self, message_id: str | None) -> str:
+        if isinstance(message_id, str):
+            normalized = message_id.strip()
+            if normalized:
+                return normalized
+        return self.stable_message_id
+
+    def build_event_id(self, sequence: int) -> str:
+        return f"{self.event_id_namespace}:{sequence}"
 
 
 class _TTLCache:
@@ -328,7 +340,11 @@ class OpencodeAgentExecutor(AgentExecutor):
         )
 
         stream_artifact_id = f"{task_id}:stream"
-        stream_state = _StreamOutputState(user_text=user_text)
+        stream_state = _StreamOutputState(
+            user_text=user_text,
+            stable_message_id=f"{task_id}:{context_id}:assistant",
+            event_id_namespace=f"{task_id}:{context_id}:{stream_artifact_id}",
+        )
         stop_event = asyncio.Event()
         stream_task: asyncio.Task[None] | None = None
         pending_preferred_claim = False
@@ -393,15 +409,17 @@ class OpencodeAgentExecutor(AgentExecutor):
                 pending_preferred_claim = False
 
             response_text = response.text or ""
+            resolved_message_id = stream_state.resolve_message_id(response.message_id)
             logger.debug(
                 "OpenCode response task_id=%s session_id=%s message_id=%s text=%s",
                 task_id,
                 response.session_id,
-                response.message_id,
+                resolved_message_id,
                 response_text,
             )
             if streaming_request:
                 if stream_state.should_emit_final_snapshot(response_text):
+                    sequence = stream_state.next_sequence()
                     await _enqueue_artifact_update(
                         event_queue=event_queue,
                         task_id=task_id,
@@ -414,8 +432,9 @@ class OpencodeAgentExecutor(AgentExecutor):
                             block_type=BlockType.TEXT,
                             source="final_snapshot",
                             event_type="message.finalized",
-                            message_id=response.message_id,
-                            sequence=stream_state.next_sequence(),
+                            message_id=resolved_message_id,
+                            sequence=sequence,
+                            event_id=stream_state.build_event_id(sequence),
                         ),
                     )
                 await event_queue.enqueue_event(
@@ -429,7 +448,8 @@ class OpencodeAgentExecutor(AgentExecutor):
                         metadata={
                             "opencode": {
                                 "session_id": response.session_id,
-                                "message_id": response.message_id,
+                                "message_id": resolved_message_id,
+                                "event_id": f"{stream_state.event_id_namespace}:status",
                             }
                         },
                     )
@@ -440,7 +460,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                     task_id=task_id,
                     context_id=context_id,
                     text=response_text,
-                    message_id=response.message_id,
+                    message_id=resolved_message_id,
                 )
                 artifact = Artifact(
                     artifact_id=str(uuid.uuid4()),
@@ -457,7 +477,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                     metadata={
                         "opencode": {
                             "session_id": response.session_id,
-                            "message_id": response.message_id,
+                            "message_id": resolved_message_id,
                         }
                     },
                 )
@@ -733,6 +753,7 @@ class OpencodeAgentExecutor(AgentExecutor):
             for chunk in chunks:
                 if not stream_state.matches_expected_message(chunk.message_id):
                     continue
+                resolved_message_id = stream_state.resolve_message_id(chunk.message_id)
                 if stream_state.should_drop_initial_user_echo(
                     chunk.text,
                     block_type=chunk.block_type,
@@ -746,6 +767,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                 )
                 if not should_emit:
                     continue
+                sequence = stream_state.next_sequence()
                 await _enqueue_artifact_update(
                     event_queue=event_queue,
                     task_id=task_id,
@@ -758,9 +780,10 @@ class OpencodeAgentExecutor(AgentExecutor):
                         block_type=chunk.block_type,
                         source=chunk.source,
                         event_type=chunk.event_type,
-                        message_id=chunk.message_id,
+                        message_id=resolved_message_id,
                         role=chunk.role,
-                        sequence=stream_state.next_sequence(),
+                        sequence=sequence,
+                        event_id=stream_state.build_event_id(sequence),
                     ),
                 )
                 logger.debug(
@@ -1097,6 +1120,7 @@ def _build_stream_artifact_metadata(
     message_id: str | None = None,
     role: str | None = None,
     sequence: int | None = None,
+    event_id: str | None = None,
 ) -> dict[str, Any]:
     opencode_meta: dict[str, Any] = {
         "block_type": block_type,
@@ -1109,6 +1133,8 @@ def _build_stream_artifact_metadata(
         opencode_meta["role"] = role
     if sequence is not None:
         opencode_meta["sequence"] = sequence
+    if event_id:
+        opencode_meta["event_id"] = event_id
     return {"opencode": opencode_meta}
 
 
