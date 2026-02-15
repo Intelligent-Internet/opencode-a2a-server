@@ -69,17 +69,13 @@ class _StreamPartState:
 @dataclass
 class _StreamOutputState:
     user_text: str
-    observed_message_ids: set[str] = field(default_factory=set)
     content_buffers: dict[BlockType, str] = field(default_factory=dict)
     saw_any_chunk: bool = False
     emitted_stream_chunk: bool = False
     sequence: int = 0
 
     def matches_expected_message(self, message_id: str | None) -> bool:
-        if not message_id:
-            return False
-        self.observed_message_ids.add(message_id)
-        return True
+        return bool(message_id)
 
     def should_drop_initial_user_echo(
         self,
