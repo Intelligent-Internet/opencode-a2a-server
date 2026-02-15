@@ -101,6 +101,7 @@ def _event(
     message_id: str | None = "msg-1",
     part_id: str | None = None,
     text: str | None = None,
+    part_overrides: dict | None = None,
 ) -> dict:
     properties: dict = {
         "part": {
@@ -117,6 +118,8 @@ def _event(
         properties["part"]["id"] = part_id
     if text is not None:
         properties["part"]["text"] = text
+    if part_overrides:
+        properties["part"].update(part_overrides)
     return {
         "type": "message.part.updated",
         "properties": properties,
@@ -308,7 +311,7 @@ def _unique(items: list[str]) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_streaming_parses_embedded_reasoning_and_tool_calls() -> None:
+async def test_streaming_treats_embedded_markers_as_plain_text_without_typed_parts() -> None:
     client = DummyStreamingClient(
         stream_events_payload=[
             _event(session_id="ses-1", role="assistant", part_type="text", delta="start "),
@@ -322,7 +325,7 @@ async def test_streaming_parses_embedded_reasoning_and_tool_calls() -> None:
             ),
             _event(session_id="ses-1", role="assistant", part_type="text", delta="1}] end"),
         ],
-        response_text="start  middle  end",
+        response_text='start <think>thinking</think> middle [tool_call: {"foo":1}] end',
     )
     executor = OpencodeAgentExecutor(client, streaming_enabled=True)
     executor._should_stream = lambda context: True  # type: ignore[method-assign]
@@ -344,31 +347,53 @@ async def test_streaming_parses_embedded_reasoning_and_tool_calls() -> None:
                     parts.append(_part_text(ev))
         return "".join(parts)
 
-    assert _final_state("text") == "start  middle  end"
-    assert _final_state("reasoning") == "thinking"
-    assert _final_state("tool_call") == ' {"foo":1}'
-    assert "<thin" not in _final_state("text")
+    assert _final_state("text") == 'start <think>thinking</think> middle [tool_call: {"foo":1}] end'
+    assert _final_state("reasoning") == ""
+    assert _final_state("tool_call") == ""
 
 
 @pytest.mark.asyncio
-async def test_streaming_parses_tool_call_with_bracket_in_json_string() -> None:
+async def test_streaming_emits_structured_tool_part_updates() -> None:
     client = DummyStreamingClient(
         stream_events_payload=[
-            _event(session_id="ses-1", role="assistant", part_type="text", delta="before "),
             _event(
                 session_id="ses-1",
                 role="assistant",
-                part_type="text",
-                delta='[tool_call: {"text":"a]',
+                part_type="tool",
+                delta="",
+                part_id="prt-tool-1",
+                part_overrides={
+                    "callID": "call-1",
+                    "tool": "bash",
+                    "state": {"status": "pending"},
+                },
             ),
             _event(
                 session_id="ses-1",
                 role="assistant",
-                part_type="text",
-                delta='b","arr":[1,2]}] after',
+                part_type="tool",
+                delta="",
+                part_id="prt-tool-1",
+                part_overrides={
+                    "callID": "call-1",
+                    "tool": "bash",
+                    "state": {"status": "running"},
+                },
+            ),
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="tool",
+                delta="",
+                part_id="prt-tool-1",
+                part_overrides={
+                    "callID": "call-1",
+                    "tool": "bash",
+                    "state": {"status": "completed"},
+                },
             ),
         ],
-        response_text="before  after",
+        response_text="done",
     )
     executor = OpencodeAgentExecutor(client, streaming_enabled=True)
     executor._should_stream = lambda context: True  # type: ignore[method-assign]
@@ -380,19 +405,14 @@ async def test_streaming_parses_tool_call_with_bracket_in_json_string() -> None:
     )
 
     updates = _artifact_updates(queue)
-
-    def _final_state(block_type: str) -> str:
-        parts = []
-        for ev in updates:
-            if ev.artifact.metadata["opencode"]["block_type"] == block_type:
-                if not ev.append:
-                    parts = [_part_text(ev)]
-                else:
-                    parts.append(_part_text(ev))
-        return "".join(parts)
-
-    assert _final_state("tool_call") == ' {"text":"a]b","arr":[1,2]}'
-    assert _final_state("text") == "before  after"
+    tool_updates = [
+        ev for ev in updates if ev.artifact.metadata["opencode"]["block_type"] == "tool_call"
+    ]
+    assert len(tool_updates) == 3
+    merged = "".join(_part_text(ev) for ev in tool_updates)
+    assert '"status":"pending"' in merged
+    assert '"status":"running"' in merged
+    assert '"status":"completed"' in merged
 
 
 @pytest.mark.asyncio
@@ -548,3 +568,78 @@ async def test_streaming_supports_message_part_delta_events() -> None:
     assert reasoning_updates
     merged = "".join(_part_text(ev) for ev in reasoning_updates)
     assert merged == "first second"
+
+
+@pytest.mark.asyncio
+async def test_streaming_buffers_delta_until_part_updated_arrives() -> None:
+    client = DummyStreamingClient(
+        stream_events_payload=[
+            _delta_event(session_id="ses-1", part_id="prt-late", delta="first "),
+            _delta_event(session_id="ses-1", part_id="prt-late", delta="second"),
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="reasoning",
+                delta="",
+                part_id="prt-late",
+                text="first second",
+            ),
+        ],
+        response_text="answer",
+    )
+    executor = OpencodeAgentExecutor(client, streaming_enabled=True)
+    executor._should_stream = lambda context: True  # type: ignore[method-assign]
+    queue = DummyEventQueue()
+
+    await executor.execute(
+        _context(task_id="task-buffered-delta", context_id="ctx-buffered-delta", text="go"),
+        queue,
+    )
+
+    reasoning_updates = [
+        event
+        for event in _artifact_updates(queue)
+        if event.artifact.metadata["opencode"]["block_type"] == "reasoning"
+    ]
+    assert reasoning_updates
+    merged = "".join(_part_text(ev) for ev in reasoning_updates)
+    assert merged == "first second"
+
+
+@pytest.mark.asyncio
+async def test_streaming_keeps_multiple_message_ids_in_same_request_window() -> None:
+    client = DummyStreamingClient(
+        stream_events_payload=[
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="reasoning",
+                part_id="prt-m1",
+                message_id="msg-a",
+                delta="step one ",
+            ),
+            _event(
+                session_id="ses-1",
+                role="assistant",
+                part_type="text",
+                part_id="prt-m2",
+                message_id="msg-b",
+                delta="final answer",
+            ),
+        ],
+        response_text="final answer",
+        response_message_id="msg-b",
+    )
+    executor = OpencodeAgentExecutor(client, streaming_enabled=True)
+    executor._should_stream = lambda context: True  # type: ignore[method-assign]
+    queue = DummyEventQueue()
+
+    await executor.execute(
+        _context(task_id="task-multi-mid", context_id="ctx-multi-mid", text="go"),
+        queue,
+    )
+
+    updates = _artifact_updates(queue)
+    message_ids = [ev.artifact.metadata["opencode"].get("message_id") for ev in updates]
+    assert "msg-a" in message_ids
+    assert "msg-b" in message_ids

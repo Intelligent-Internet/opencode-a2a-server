@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
 import uuid
+from collections import defaultdict
 from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -48,28 +50,36 @@ class _NormalizedStreamChunk:
     role: str | None
 
 
+@dataclass(frozen=True)
+class _PendingDelta:
+    field: str
+    delta: str
+    message_id: str | None
+
+
+@dataclass
+class _StreamPartState:
+    block_type: BlockType
+    message_id: str | None
+    role: str | None
+    buffer: str = ""
+    saw_delta: bool = False
+
+
 @dataclass
 class _StreamOutputState:
     user_text: str
-    response_message_id: str | None = None
+    observed_message_ids: set[str] = field(default_factory=set)
     content_buffers: dict[BlockType, str] = field(default_factory=dict)
     saw_any_chunk: bool = False
     emitted_stream_chunk: bool = False
     sequence: int = 0
 
-    def set_response_message_id(self, message_id: str | None) -> None:
-        if not isinstance(message_id, str):
-            self.response_message_id = None
-            return
-        value = message_id.strip()
-        self.response_message_id = value or None
-
     def matches_expected_message(self, message_id: str | None) -> bool:
         if not message_id:
             return False
-        if not self.response_message_id:
-            return True
-        return message_id == self.response_message_id
+        self.observed_message_ids.add(message_id)
+        return True
 
     def should_drop_initial_user_echo(
         self,
@@ -395,7 +405,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                 response_text,
             )
             if streaming_request:
-                stream_state.set_response_message_id(response.message_id)
                 if stream_state.should_emit_final_snapshot(response_text):
                     await _enqueue_artifact_update(
                         event_queue=event_queue,
@@ -719,12 +728,8 @@ class OpencodeAgentExecutor(AgentExecutor):
         stop_event: asyncio.Event,
         directory: str | None = None,
     ) -> None:
-        raw_text_buffers: dict[str, str] = {}
-        direct_buffers: dict[str, str] = {}
-        parsers: dict[str, _EmbeddedStreamParser] = {}
-        parser_message_ids: dict[str, str | None] = {}
-        part_block_types: dict[str, BlockType] = {}
-        delta_seen_buffers: set[str] = set()
+        part_states: dict[str, _StreamPartState] = {}
+        pending_deltas: defaultdict[str, list[_PendingDelta]] = defaultdict(list)
         backoff = 0.5
         max_backoff = 5.0
 
@@ -771,6 +776,149 @@ class OpencodeAgentExecutor(AgentExecutor):
                     chunk.text,
                 )
 
+        def _new_chunk(
+            *,
+            text: str,
+            append: bool,
+            block_type: BlockType,
+            source: str,
+            event_type: str,
+            message_id: str | None,
+            role: str | None,
+        ) -> _NormalizedStreamChunk:
+            return _NormalizedStreamChunk(
+                text=text,
+                append=append,
+                block_type=block_type,
+                source=source,
+                event_type=event_type,
+                message_id=message_id,
+                role=role,
+            )
+
+        def _upsert_part_state(
+            *,
+            part_id: str,
+            part: Mapping[str, Any],
+            props: Mapping[str, Any],
+            role: str | None,
+            message_id: str | None,
+        ) -> _StreamPartState | None:
+            block_type = _resolve_stream_block_type(part, props)
+            if block_type is None:
+                return None
+            state = part_states.get(part_id)
+            if state is None:
+                state = _StreamPartState(
+                    block_type=block_type,
+                    message_id=message_id,
+                    role=role,
+                )
+                part_states[part_id] = state
+                return state
+            state.block_type = block_type
+            if role is not None:
+                state.role = role
+            if message_id:
+                state.message_id = message_id
+            return state
+
+        def _delta_chunks(
+            *,
+            state: _StreamPartState,
+            delta_text: str,
+            message_id: str | None,
+            event_type: str,
+            source: str,
+        ) -> list[_NormalizedStreamChunk]:
+            if not delta_text:
+                return []
+            if message_id:
+                state.message_id = message_id
+            state.buffer = f"{state.buffer}{delta_text}"
+            state.saw_delta = True
+            return [
+                _new_chunk(
+                    text=delta_text,
+                    append=True,
+                    block_type=state.block_type,
+                    source=source,
+                    event_type=event_type,
+                    message_id=state.message_id,
+                    role=state.role,
+                )
+            ]
+
+        def _snapshot_chunks(
+            *,
+            state: _StreamPartState,
+            snapshot: str,
+            message_id: str | None,
+            event_type: str,
+            part_id: str,
+        ) -> list[_NormalizedStreamChunk]:
+            if message_id:
+                state.message_id = message_id
+            previous = state.buffer
+            if snapshot == previous:
+                return []
+            if snapshot.startswith(previous):
+                delta_text = snapshot[len(previous) :]
+                state.buffer = snapshot
+                if not delta_text:
+                    return []
+                return [
+                    _new_chunk(
+                        text=delta_text,
+                        append=True,
+                        block_type=state.block_type,
+                        source="part_text_diff",
+                        event_type=event_type,
+                        message_id=state.message_id,
+                        role=state.role,
+                    )
+                ]
+            state.buffer = snapshot
+            logger.warning(
+                "Suppressing non-prefix snapshot rewrite "
+                "task_id=%s session_id=%s part_id=%s block_type=%s had_delta=%s",
+                task_id,
+                session_id,
+                part_id,
+                state.block_type.value,
+                state.saw_delta,
+            )
+            return []
+
+        def _tool_chunks(
+            *,
+            state: _StreamPartState,
+            part: Mapping[str, Any],
+            message_id: str | None,
+            event_type: str,
+        ) -> list[_NormalizedStreamChunk]:
+            tool_chunk = _serialize_tool_part(part)
+            if not tool_chunk:
+                return []
+            if message_id:
+                state.message_id = message_id
+            previous = state.buffer
+            if tool_chunk == previous:
+                return []
+            state.buffer = tool_chunk
+            text = tool_chunk if not previous else f"\n{tool_chunk}"
+            return [
+                _new_chunk(
+                    text=text,
+                    append=bool(previous),
+                    block_type=state.block_type,
+                    source="tool_part_update",
+                    event_type=event_type,
+                    message_id=state.message_id,
+                    role=state.role,
+                )
+            ]
+
         try:
             while not stop_event.is_set():
                 try:
@@ -790,155 +938,105 @@ class OpencodeAgentExecutor(AgentExecutor):
                             part = {}
                         if _extract_stream_session_id(part, props) != session_id:
                             continue
-                        role = _extract_stream_role(part, props)
-                        if role in {"user", "system"}:
-                            continue
-                        delta = props.get("delta")
                         message_id = _extract_stream_message_id(part, props)
                         part_id = _extract_stream_part_id(part, props)
-                        if event_type == "message.part.delta" and not part_id:
+                        if not part_id and event_type == "message.part.updated":
+                            part_id = _build_fallback_part_id(part, props, message_id=message_id)
+                        if not part_id:
                             continue
-                        if part_id and event_type == "message.part.updated":
-                            part_block_types[part_id] = _classify_stream_block_type(part, props)
-                        block_type = (
-                            part_block_types.get(part_id)
-                            if part_id
-                            else _classify_stream_block_type(part, props)
+
+                        if event_type == "message.part.delta":
+                            field = props.get("field")
+                            delta = props.get("delta")
+                            if field != "text" or not isinstance(delta, str) or not delta:
+                                continue
+                            state = part_states.get(part_id)
+                            if state is None:
+                                pending_deltas[part_id].append(
+                                    _PendingDelta(
+                                        field=field,
+                                        delta=delta,
+                                        message_id=message_id,
+                                    )
+                                )
+                                continue
+                            if state.role in {"user", "system"}:
+                                continue
+                            chunks = _delta_chunks(
+                                state=state,
+                                delta_text=delta,
+                                message_id=message_id,
+                                event_type=event_type,
+                                source="delta_event",
+                            )
+                            if chunks:
+                                await _emit_chunks(chunks)
+                            continue
+
+                        role = _extract_stream_role(part, props)
+                        state = _upsert_part_state(
+                            part_id=part_id,
+                            part=part,
+                            props=props,
+                            role=role,
+                            message_id=message_id,
                         )
-                        if block_type is None:
+                        if state is None:
+                            pending_deltas.pop(part_id, None)
                             continue
-                        message_key = message_id or "unknown"
-                        buffer_identity = part_id or message_key
+                        if state.role in {"user", "system"}:
+                            pending_deltas.pop(part_id, None)
+                            continue
 
                         chunks: list[_NormalizedStreamChunk] = []
-                        if block_type == BlockType.TEXT and (
-                            part.get("type") == "text" or event_type == "message.part.delta"
-                        ):
-                            parser = parsers.setdefault(buffer_identity, _EmbeddedStreamParser())
-                            parser_message_ids[buffer_identity] = message_id
-                            raw_key = f"raw:{buffer_identity}"
-                            previous_raw = raw_text_buffers.get(raw_key, "")
-                            incoming_text: str | None = None
-                            append = True
-                            source = "delta"
-                            if event_type == "message.part.delta":
-                                if props.get("field") != "text":
-                                    continue
-                                if isinstance(delta, str) and delta:
-                                    incoming_text = delta
-                                    source = "delta_event"
-                            elif isinstance(delta, str) and delta:
-                                incoming_text = delta
-                            elif isinstance(part.get("text"), str):
-                                next_text = part["text"]
-                                if next_text == previous_raw:
-                                    continue
-                                if next_text.startswith(previous_raw):
-                                    incoming_text = next_text[len(previous_raw) :]
-                                    append = True
-                                    source = "part_text_diff"
-                                else:
-                                    incoming_text = next_text
-                                    append = False
-                                    source = "part_text_reset"
-                            if incoming_text is None:
+                        pending = pending_deltas.pop(part_id, [])
+                        for buffered in pending:
+                            if buffered.field != "text":
                                 continue
-
-                            if append:
-                                raw_text_buffers[raw_key] = f"{previous_raw}{incoming_text}"
-                                delta_seen_buffers.add(raw_key)
-                            else:
-                                raw_text_buffers[raw_key] = incoming_text
-                                parser.reset()
-                                if raw_key in delta_seen_buffers:
-                                    # Snapshot reset after emitted deltas:
-                                    # suppress to avoid duplicate append.
-                                    parser.feed(incoming_text)
-                                    continue
-
-                            parsed_segments = parser.feed(incoming_text)
-                            for idx, segment in enumerate(parsed_segments):
-                                chunks.append(
-                                    _NormalizedStreamChunk(
-                                        text=segment.text,
-                                        append=append if idx == 0 else True,
-                                        block_type=segment.block_type,
-                                        source=f"lexer_{source}",
-                                        event_type=event_type,
-                                        message_id=message_id,
-                                        role=role,
-                                    )
+                            chunks.extend(
+                                _delta_chunks(
+                                    state=state,
+                                    delta_text=buffered.delta,
+                                    message_id=buffered.message_id,
+                                    event_type="message.part.delta",
+                                    source="delta_event_buffered",
                                 )
-                        else:
-                            chunk_text: str | None = None
-                            append = True
-                            source = "delta"
-                            buffer_key = f"{buffer_identity}:{block_type.value}"
-                            previous = direct_buffers.get(buffer_key, "")
-                            if event_type == "message.part.delta":
-                                if props.get("field") != "text":
-                                    continue
-                                if isinstance(delta, str) and delta:
-                                    chunk_text = delta
-                                    source = "delta_event"
-                                    direct_buffers[buffer_key] = f"{previous}{delta}"
-                                    delta_seen_buffers.add(buffer_key)
-                            elif isinstance(delta, str) and delta:
-                                chunk_text = delta
-                                direct_buffers[buffer_key] = f"{previous}{delta}"
-                                delta_seen_buffers.add(buffer_key)
-                            elif isinstance(part.get("text"), str):
-                                next_text = part["text"]
-                                if next_text != previous:
-                                    if next_text.startswith(previous):
-                                        chunk_text = next_text[len(previous) :]
-                                        append = True
-                                        source = "part_text_diff"
-                                    else:
-                                        # Snapshot reset after emitted deltas:
-                                        # suppress to avoid duplicate append.
-                                        if buffer_key in delta_seen_buffers:
-                                            direct_buffers[buffer_key] = next_text
-                                            continue
-                                        chunk_text = next_text
-                                        append = False
-                                        source = "part_text_reset"
-                                    direct_buffers[buffer_key] = next_text
-                            if chunk_text:
-                                chunks.append(
-                                    _NormalizedStreamChunk(
-                                        text=chunk_text,
-                                        append=append,
-                                        block_type=block_type,
-                                        source=source,
-                                        event_type=event_type,
-                                        message_id=message_id,
-                                        role=role,
-                                    )
-                                )
+                            )
 
-                        if not chunks:
-                            continue
-                        await _emit_chunks(chunks)
-
-                    if not stop_event.is_set():
-                        eof_chunks: list[_NormalizedStreamChunk] = []
-                        for parser_key, parser in parsers.items():
-                            message_id = parser_message_ids.get(parser_key)
-                            for segment in parser.flush_eof():
-                                eof_chunks.append(
-                                    _NormalizedStreamChunk(
-                                        text=segment.text,
-                                        append=True,
-                                        block_type=segment.block_type,
-                                        source="lexer_eof_flush",
-                                        event_type="message.stream.eof",
-                                        message_id=message_id,
-                                        role="agent",
-                                    )
+                        delta = props.get("delta")
+                        if isinstance(delta, str) and delta:
+                            chunks.extend(
+                                _delta_chunks(
+                                    state=state,
+                                    delta_text=delta,
+                                    message_id=message_id,
+                                    event_type=event_type,
+                                    source="delta",
                                 )
-                        if eof_chunks:
-                            await _emit_chunks(eof_chunks)
+                            )
+                        elif state.block_type == BlockType.TOOL_CALL:
+                            chunks.extend(
+                                _tool_chunks(
+                                    state=state,
+                                    part=part,
+                                    message_id=message_id,
+                                    event_type=event_type,
+                                )
+                            )
+                        elif isinstance(part.get("text"), str):
+                            chunks.extend(
+                                _snapshot_chunks(
+                                    state=state,
+                                    snapshot=part["text"],
+                                    message_id=message_id,
+                                    event_type=event_type,
+                                    part_id=part_id,
+                                )
+                            )
+
+                        if chunks:
+                            await _emit_chunks(chunks)
+
                     break
                 except Exception:
                     if stop_event.is_set():
@@ -1113,200 +1211,63 @@ def _extract_stream_part_id(part: Mapping[str, Any], props: Mapping[str, Any]) -
     return None
 
 
-@dataclass(frozen=True)
-class _ParsedStreamSegment:
-    block_type: BlockType
-    text: str
+def _build_fallback_part_id(
+    part: Mapping[str, Any],
+    props: Mapping[str, Any],
+    *,
+    message_id: str | None,
+) -> str | None:
+    if not message_id:
+        return None
+    part_type = _extract_stream_part_type(part, props) or "unknown"
+    return f"fallback:{message_id}:{part_type}"
 
 
-class _EmbeddedStreamParser:
-    _THINK_OPEN = "<think>"
-    _THINK_CLOSE = "</think>"
-    _TOOL_CALL_OPEN = "[tool_call:"
-
-    def __init__(self) -> None:
-        self.reset()
-
-    def reset(self) -> None:
-        self._state = BlockType.TEXT
-        self._buffer = ""
-        self._tool_depth = 1
-        self._tool_in_string = False
-        self._tool_quote_char = ""
-        self._tool_escaped = False
-
-    def feed(self, text: str) -> list[_ParsedStreamSegment]:
-        if not text:
-            return []
-        self._buffer += text
-        segments: list[_ParsedStreamSegment] = []
-        i = 0
-        while i < len(self._buffer):
-            if self._state == BlockType.TEXT:
-                think_pos = self._buffer.find(self._THINK_OPEN, i)
-                tool_pos = self._buffer.find(self._TOOL_CALL_OPEN, i)
-                marker_pos = -1
-                marker = ""
-                if think_pos >= 0 and (tool_pos < 0 or think_pos < tool_pos):
-                    marker_pos = think_pos
-                    marker = self._THINK_OPEN
-                elif tool_pos >= 0:
-                    marker_pos = tool_pos
-                    marker = self._TOOL_CALL_OPEN
-
-                if marker_pos >= 0:
-                    _append_segment(
-                        segments,
-                        BlockType.TEXT,
-                        self._buffer[i:marker_pos],
-                    )
-                    i = marker_pos + len(marker)
-                    if marker == self._THINK_OPEN:
-                        self._state = BlockType.REASONING
-                    else:
-                        self._state = BlockType.TOOL_CALL
-                        self._tool_depth = 1
-                        self._tool_in_string = False
-                        self._tool_quote_char = ""
-                        self._tool_escaped = False
-                    continue
-
-                remaining = self._buffer[i:]
-                hold_len = _max_partial_marker_len(
-                    remaining,
-                    markers=(self._THINK_OPEN, self._TOOL_CALL_OPEN),
-                )
-                emit_len = len(remaining) - hold_len
-                _append_segment(
-                    segments,
-                    BlockType.TEXT,
-                    remaining[:emit_len],
-                )
-                i += emit_len
-                if hold_len > 0:
-                    break
-                continue
-
-            if self._state == BlockType.REASONING:
-                end_pos = self._buffer.find(self._THINK_CLOSE, i)
-                if end_pos >= 0:
-                    _append_segment(
-                        segments,
-                        BlockType.REASONING,
-                        self._buffer[i:end_pos],
-                    )
-                    i = end_pos + len(self._THINK_CLOSE)
-                    self._state = BlockType.TEXT
-                    continue
-
-                remaining = self._buffer[i:]
-                hold_len = _max_partial_marker_len(
-                    remaining,
-                    markers=(self._THINK_CLOSE,),
-                )
-                emit_len = len(remaining) - hold_len
-                _append_segment(
-                    segments,
-                    BlockType.REASONING,
-                    remaining[:emit_len],
-                )
-                i += emit_len
-                if hold_len > 0:
-                    break
-                continue
-
-            tool_buf: list[str] = []
-            while i < len(self._buffer):
-                ch = self._buffer[i]
-                i += 1
-
-                if self._tool_in_string:
-                    tool_buf.append(ch)
-                    if self._tool_escaped:
-                        self._tool_escaped = False
-                    elif ch == "\\":
-                        self._tool_escaped = True
-                    elif ch == self._tool_quote_char:
-                        self._tool_in_string = False
-                    continue
-
-                if ch in {'"', "'"}:
-                    self._tool_in_string = True
-                    self._tool_quote_char = ch
-                    tool_buf.append(ch)
-                    continue
-                if ch == "[":
-                    self._tool_depth += 1
-                    tool_buf.append(ch)
-                    continue
-                if ch == "]":
-                    self._tool_depth -= 1
-                    if self._tool_depth == 0:
-                        self._state = BlockType.TEXT
-                        self._tool_in_string = False
-                        self._tool_quote_char = ""
-                        self._tool_escaped = False
-                        break
-                    tool_buf.append(ch)
-                    continue
-
-                tool_buf.append(ch)
-
-            _append_segment(
-                segments,
-                BlockType.TOOL_CALL,
-                "".join(tool_buf),
-            )
-
-        self._buffer = self._buffer[i:]
-        return segments
-
-    def flush_eof(self) -> list[_ParsedStreamSegment]:
-        if not self._buffer:
-            return []
-        block_type = self._state
-        text = self._buffer
-        self._buffer = ""
-        self._state = BlockType.TEXT
-        self._tool_depth = 1
-        self._tool_in_string = False
-        self._tool_quote_char = ""
-        self._tool_escaped = False
-        return [_ParsedStreamSegment(block_type=block_type, text=text)]
+def _extract_stream_part_type(part: Mapping[str, Any], props: Mapping[str, Any]) -> str | None:
+    for value in (
+        part.get("type"),
+        part.get("kind"),
+        props.get("partType"),
+        props.get("part_type"),
+    ):
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized:
+                return normalized
+    return None
 
 
-def _append_segment(
-    segments: list[_ParsedStreamSegment],
-    block_type: BlockType,
-    text: str,
-) -> None:
-    if not text:
-        return
-    if segments and segments[-1].block_type == block_type:
-        previous = segments[-1]
-        segments[-1] = _ParsedStreamSegment(
-            block_type=block_type,
-            text=f"{previous.text}{text}",
-        )
-        return
-    segments.append(_ParsedStreamSegment(block_type=block_type, text=text))
+def _map_part_type_to_block_type(part_type: str | None) -> BlockType | None:
+    if not part_type:
+        return None
+    if part_type == "text":
+        return BlockType.TEXT
+    if part_type in {"reasoning", "thinking", "thought"}:
+        return BlockType.REASONING
+    if part_type in {
+        "tool",
+        "tool_call",
+        "toolcall",
+        "function_call",
+        "functioncall",
+        "action",
+    }:
+        return BlockType.TOOL_CALL
+    return None
 
 
-def _max_partial_marker_len(text: str, *, markers: tuple[str, ...]) -> int:
-    if not text:
-        return 0
-    max_len = 0
-    for marker in markers:
-        upper = min(len(text), len(marker) - 1)
-        for size in range(upper, 0, -1):
-            if marker.startswith(text[-size:]):
-                if size > max_len:
-                    max_len = size
-                break
-    return max_len
+def _resolve_stream_block_type(
+    part: Mapping[str, Any], props: Mapping[str, Any]
+) -> BlockType | None:
+    explicit_part_type = _extract_stream_part_type(part, props)
+    if explicit_part_type is not None:
+        return _map_part_type_to_block_type(explicit_part_type)
+    return _classify_stream_block_type(part, props)
 
 
-def _classify_stream_block_type(part: Mapping[str, Any], props: Mapping[str, Any]) -> BlockType:
+def _classify_stream_block_type(
+    part: Mapping[str, Any], props: Mapping[str, Any]
+) -> BlockType | None:
     candidates: list[str] = []
     for value in (
         part.get("block_type"),
@@ -1315,7 +1276,6 @@ def _classify_stream_block_type(part: Mapping[str, Any], props: Mapping[str, Any
         props.get("channel"),
         part.get("kind"),
         props.get("kind"),
-        part.get("type"),
         props.get("type"),
         props.get("deltaType"),
         props.get("phase"),
@@ -1344,7 +1304,44 @@ def _classify_stream_block_type(part: Mapping[str, Any], props: Mapping[str, Any
         for candidate in candidates
     ):
         return BlockType.TOOL_CALL
-    return BlockType.TEXT
+    if any(
+        any(keyword in candidate for keyword in ("text", "answer", "final"))
+        for candidate in candidates
+    ):
+        return BlockType.TEXT
+    return None
+
+
+def _serialize_tool_part(part: Mapping[str, Any]) -> str | None:
+    payload: dict[str, Any] = {}
+    for source_key in ("callID", "callId", "call_id"):
+        value = part.get(source_key)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                payload["call_id"] = normalized
+                break
+    for source_key in ("tool", "name"):
+        value = part.get(source_key)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                payload["tool"] = normalized
+                break
+    state = part.get("state")
+    if isinstance(state, Mapping):
+        status = state.get("status")
+        if isinstance(status, str):
+            normalized = status.strip()
+            if normalized:
+                payload["status"] = normalized
+        for key in ("title", "subtitle", "input", "output", "error"):
+            value = state.get(key)
+            if value is not None:
+                payload[key] = value
+    if not payload:
+        return None
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def _build_history(context: RequestContext) -> list[Message]:
