@@ -396,8 +396,14 @@ Application-level safeguards:
   `GET /v1/tasks/{task_id}:subscribe`
 - service subscribes to OpenCode `/event` stream and forwards filtered
   per-session updates
-- stream emits incremental `TaskArtifactUpdateEvent` with channel metadata
-  (`reasoning` / `tool_call` / `final_answer`)
+- stream emits incremental `TaskArtifactUpdateEvent` on a single artifact
+  with `opencode.block_type` metadata
+  (`text` / `reasoning` / `tool_call`) and monotonic `opencode.sequence`
+- routing is schema-first via OpenCode `part.type` + `part_id` state, not
+  inline marker parsing
+- `message.part.delta` may arrive before `message.part.updated`; the service
+  buffers those deltas and replays them when the part state is available
+- structured `tool` parts are emitted as `tool_call` block updates
 - events without `message_id` are discarded to avoid ambiguous correlation
 - final snapshot is emitted only when stream chunks did not already produce
-  the same final answer; stream then closes with `TaskStatusUpdateEvent(final=true)`
+  the same final text; stream then closes with `TaskStatusUpdateEvent(final=true)`

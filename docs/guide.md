@@ -57,10 +57,18 @@ This guide covers configuration, authentication, API behavior, streaming re-subs
 - Streaming (`/v1/message:stream`) emits incremental
   `TaskArtifactUpdateEvent` and then
   `TaskStatusUpdateEvent(final=true)`. Stream artifacts carry
-  `artifact.metadata.opencode.channel` with values
-  `reasoning` / `tool_call` / `final_answer`. Events without
+  `artifact.metadata.opencode.block_type` with values
+  `text` / `reasoning` / `tool_call`. All chunks share one stream
+  artifact ID and preserve original timeline via
+  `artifact.metadata.opencode.sequence`. Events without
   `message_id` are dropped. A final snapshot is only emitted when stream
-  chunks did not already produce the same final answer text.
+  chunks did not already produce the same final text.
+  Stream routing is schema-first: the service classifies chunks primarily by
+  OpenCode `part.type` (plus `part_id` state) rather than inline text markers.
+  `message.part.delta` and `message.part.updated` are merged per `part_id`;
+  out-of-order deltas are buffered and replayed when the corresponding
+  `part.updated` arrives. Structured `tool` parts are emitted as `tool_call`
+  blocks with normalized state payload.
   Non-streaming requests return a `Task` directly.
 - Requests require `Authorization: Bearer <token>`; otherwise `401` is
   returned. Agent Card endpoints are public.
