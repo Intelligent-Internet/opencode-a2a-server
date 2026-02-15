@@ -47,6 +47,9 @@ Additional notes:
   contract and event semantics, see `docs/guide.md`.
 - Token usage passthrough: normalized usage/cost stats are exposed at
   `metadata.opencode.usage` (stream final status and non-streaming task metadata).
+- Interrupt callback passthrough: when OpenCode emits `permission.asked` /
+  `question.asked`, stream status events include `metadata.opencode.interrupt`
+  so downstream can reply via JSON-RPC extension methods.
 - Re-subscribe after disconnect: `GET /v1/tasks/{task_id}:subscribe`
   (available while the task is not in a terminal state).
 - Session continuation contract: clients can explicitly bind to an existing
@@ -154,6 +157,10 @@ The service exposes OpenCode session list/history queries through A2A extension 
 - Result: `result.items` always contains A2A standard objects
   (Task for session list, Message for history)
 - OpenCode raw records are preserved in `metadata.opencode.raw`
+- Interrupt callback methods:
+  - `opencode.permission.reply`
+  - `opencode.question.reply`
+  - `opencode.question.reject`
 
 List sessions (`opencode.sessions.list`):
 

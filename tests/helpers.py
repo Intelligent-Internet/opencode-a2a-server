@@ -138,6 +138,16 @@ class DummyChatOpencodeClient:
         for _ in ():
             yield {}
 
+    def remember_interrupt_request(self, *, request_id: str, session_id: str) -> None:
+        del request_id, session_id
+
+    def resolve_interrupt_session(self, request_id: str) -> str | None:
+        del request_id
+        return None
+
+    def discard_interrupt_request(self, request_id: str) -> None:
+        del request_id
+
 
 class DummySessionQueryOpencodeClient:
     def __init__(self, _settings: Settings) -> None:
@@ -157,3 +167,34 @@ class DummySessionQueryOpencodeClient:
         assert session_id
         self.last_messages_params = params
         return self._messages_payload
+
+    async def permission_reply(
+        self,
+        request_id: str,
+        *,
+        reply: str,
+        message: str | None = None,
+        session_id: str | None = None,
+        directory: str | None = None,
+    ) -> bool:
+        del request_id, reply, message, session_id, directory
+        return True
+
+    async def question_reply(
+        self,
+        request_id: str,
+        *,
+        answers: list[list[str]],
+        directory: str | None = None,
+    ) -> bool:
+        del request_id, answers, directory
+        return True
+
+    async def question_reject(
+        self,
+        request_id: str,
+        *,
+        directory: str | None = None,
+    ) -> bool:
+        del request_id, directory
+        return True

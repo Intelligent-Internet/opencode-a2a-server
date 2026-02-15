@@ -71,6 +71,10 @@ This guide covers configuration, authentication, API behavior, streaming re-subs
   blocks with normalized state payload. Final status event metadata may include
   normalized token usage at `metadata.opencode.usage` with fields like
   `input_tokens`, `output_tokens`, `total_tokens`, and optional `cost`.
+  Interrupt events (`permission.asked` / `question.asked`) are mapped to
+  `TaskStatusUpdateEvent(final=false, state=input-required)` with details at
+  `metadata.opencode.interrupt` (including `request_id`, event type, and
+  structured payload for downstream callback handling).
   Non-streaming requests return a `Task` directly.
 - Non-streaming `message:send` responses may include normalized token usage at
   `Task.metadata.opencode.usage` with the same field schema.
@@ -171,6 +175,38 @@ curl -sS http://127.0.0.1:8000/ \
       "session_id": "<session_id>",
       "page": 1,
       "size": 50
+    }
+  }'
+```
+
+## OpenCode Interrupt Callback (A2A Extension)
+
+When stream metadata reports an interrupt request at `metadata.opencode.interrupt`,
+clients can reply through JSON-RPC extension methods:
+
+- `opencode.permission.reply`
+  - required: `request_id`
+  - required: `reply` (`allow` / `deny` / `once` / `always` / `reject`)
+  - optional: `message`, `session_id`
+- `opencode.question.reply`
+  - required: `request_id`
+  - required: `answers` (`Array<Array<string>>`)
+- `opencode.question.reject`
+  - required: `request_id`
+
+Permission reply example:
+
+```bash
+curl -sS http://127.0.0.1:8000/ \
+  -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <your-token>' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "opencode.permission.reply",
+    "params": {
+      "request_id": "<request_id>",
+      "reply": "allow"
     }
   }'
 ```

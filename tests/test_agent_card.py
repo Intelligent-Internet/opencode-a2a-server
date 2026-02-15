@@ -1,4 +1,5 @@
 from opencode_a2a_serve.app import (
+    INTERRUPT_CALLBACK_EXTENSION_URI,
     SESSION_BINDING_EXTENSION_URI,
     SESSION_QUERY_EXTENSION_URI,
     build_agent_card,
@@ -50,6 +51,11 @@ def test_agent_card_injects_deployment_context_into_extensions() -> None:
     assert session_query.params["deployment_context"]["project"] == "alpha"
     assert session_query.params["shared_workspace_across_consumers"] is True
     assert session_query.params["tenant_isolation"] == "none"
+
+    interrupt = ext_by_uri[INTERRUPT_CALLBACK_EXTENSION_URI]
+    assert interrupt.params["deployment_context"]["project"] == "alpha"
+    assert interrupt.params["shared_workspace_across_consumers"] is True
+    assert interrupt.params["tenant_isolation"] == "none"
 
 
 def test_agent_card_chat_examples_include_project_hint_when_configured() -> None:

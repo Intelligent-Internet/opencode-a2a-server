@@ -415,3 +415,184 @@ async def test_session_query_extension_does_not_log_response_bodies(monkeypatch,
     # The response contains SECRET_HISTORY but the log middleware must not print bodies for
     # opencode.sessions.* operations.
     assert "SECRET_HISTORY" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_interrupt_callback_extension_permission_reply(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    class InterruptClient(DummyOpencodeClient):
+        def __init__(self, _settings: Settings) -> None:
+            super().__init__(_settings)
+            self.permission_reply_calls: list[dict] = []
+
+        async def permission_reply(
+            self,
+            request_id: str,
+            *,
+            reply: str,
+            message: str | None = None,
+            session_id: str | None = None,
+            directory: str | None = None,
+        ) -> bool:
+            self.permission_reply_calls.append(
+                {
+                    "request_id": request_id,
+                    "reply": reply,
+                    "message": message,
+                    "session_id": session_id,
+                    "directory": directory,
+                }
+            )
+            return True
+
+    dummy = InterruptClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "opencode.permission.reply",
+                "params": {
+                    "request_id": "perm-1",
+                    "reply": "allow",
+                    "message": "approved by operator",
+                    "session_id": "ses-1",
+                },
+            },
+        )
+        payload = resp.json()
+        assert payload.get("error") is None
+        assert payload["result"]["ok"] is True
+        assert payload["result"]["request_id"] == "perm-1"
+        assert payload["result"]["decision"] == "allow"
+        assert payload["result"]["reply"] == "once"
+        assert len(dummy.permission_reply_calls) == 1
+        assert dummy.permission_reply_calls[0]["request_id"] == "perm-1"
+        assert dummy.permission_reply_calls[0]["reply"] == "once"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_callback_extension_question_reply_and_reject(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    class InterruptClient(DummyOpencodeClient):
+        def __init__(self, _settings: Settings) -> None:
+            super().__init__(_settings)
+            self.question_reply_calls: list[dict] = []
+            self.question_reject_calls: list[dict] = []
+
+        async def question_reply(
+            self,
+            request_id: str,
+            *,
+            answers: list[list[str]],
+            directory: str | None = None,
+        ) -> bool:
+            self.question_reply_calls.append(
+                {"request_id": request_id, "answers": answers, "directory": directory}
+            )
+            return True
+
+        async def question_reject(
+            self,
+            request_id: str,
+            *,
+            directory: str | None = None,
+        ) -> bool:
+            self.question_reject_calls.append({"request_id": request_id, "directory": directory})
+            return True
+
+    dummy = InterruptClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        reply_resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "opencode.question.reply",
+                "params": {"request_id": "q-1", "answers": [["A"], ["B"]]},
+            },
+        )
+        reply_payload = reply_resp.json()
+        assert reply_payload["result"]["ok"] is True
+        assert reply_payload["result"]["request_id"] == "q-1"
+        assert dummy.question_reply_calls[0]["answers"] == [["A"], ["B"]]
+
+        reject_resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "opencode.question.reject",
+                "params": {"request_id": "q-2"},
+            },
+        )
+        reject_payload = reject_resp.json()
+        assert reject_payload["result"]["ok"] is True
+        assert reject_payload["result"]["rejected"] is True
+        assert dummy.question_reject_calls[0]["request_id"] == "q-2"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_callback_extension_maps_404_to_interrupt_not_found(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    class NotFoundInterruptClient(DummyOpencodeClient):
+        async def permission_reply(
+            self,
+            request_id: str,
+            *,
+            reply: str,
+            message: str | None = None,
+            session_id: str | None = None,
+            directory: str | None = None,
+        ) -> bool:
+            del request_id, reply, message, session_id, directory
+            request = httpx.Request("POST", "http://opencode/permission/x/reply")
+            response = httpx.Response(404, request=request)
+            raise httpx.HTTPStatusError("Not Found", request=request, response=response)
+
+    monkeypatch.setattr(app_module, "OpencodeClient", NotFoundInterruptClient)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 14,
+                "method": "opencode.permission.reply",
+                "params": {"request_id": "perm-404", "reply": "deny"},
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32004
+        assert payload["error"]["data"]["type"] == "INTERRUPT_REQUEST_NOT_FOUND"

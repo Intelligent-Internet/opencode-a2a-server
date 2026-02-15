@@ -36,6 +36,42 @@ SESSION_QUERY_PAGINATION_MAX_SIZE = 100
 ERR_SESSION_NOT_FOUND = -32001
 ERR_UPSTREAM_UNREACHABLE = -32002
 ERR_UPSTREAM_HTTP_ERROR = -32003
+ERR_INTERRUPT_NOT_FOUND = -32004
+
+
+def _normalize_permission_reply(value: Any) -> tuple[str, str]:
+    if not isinstance(value, str):
+        raise ValueError("reply must be a string")
+    normalized = value.strip().lower()
+    if normalized in {"allow", "once"}:
+        return "once", "allow"
+    if normalized == "always":
+        return "always", "allow"
+    if normalized in {"deny", "reject"}:
+        return "reject", "deny"
+    raise ValueError("reply must be one of: allow, deny, once, always, reject")
+
+
+def _parse_question_answers(value: Any) -> list[list[str]]:
+    if not isinstance(value, list):
+        raise ValueError("answers must be an array")
+    if not value:
+        return []
+    if all(isinstance(item, str) for item in value):
+        return [[item for item in value if item.strip()]]
+    answers: list[list[str]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, list):
+            raise ValueError(f"answers[{index}] must be an array of strings")
+        parsed_group: list[str] = []
+        for option in item:
+            if not isinstance(option, str):
+                raise ValueError(f"answers[{index}] must contain only strings")
+            normalized = option.strip()
+            if normalized:
+                parsed_group.append(normalized)
+        answers.append(parsed_group)
+    return answers
 
 
 def _parse_positive_int(value: Any, *, field: str) -> int | None:
@@ -208,6 +244,9 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
         self._opencode_client = opencode_client
         self._method_list_sessions = methods["list_sessions"]
         self._method_get_session_messages = methods["get_session_messages"]
+        self._method_reply_permission = methods["reply_permission"]
+        self._method_reply_question = methods["reply_question"]
+        self._method_reject_question = methods["reject_question"]
 
     async def _handle_requests(self, request: Request) -> Response:
         # Fast path: sniff method first then either handle here or delegate.
@@ -230,10 +269,16 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
             # Delegate to base implementation for consistent error handling.
             return await super()._handle_requests(request)
 
-        if base_request.method not in {
+        session_query_methods = {
             self._method_list_sessions,
             self._method_get_session_messages,
-        }:
+        }
+        interrupt_callback_methods = {
+            self._method_reply_permission,
+            self._method_reply_question,
+            self._method_reject_question,
+        }
+        if base_request.method not in session_query_methods | interrupt_callback_methods:
             return await super()._handle_requests(request)
 
         params = base_request.params or {}
@@ -243,6 +288,15 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                 A2AError(root=InvalidParamsError(message="params must be an object")),
             )
 
+        if base_request.method in session_query_methods:
+            return await self._handle_session_query_request(base_request, params)
+        return await self._handle_interrupt_callback_request(base_request, params)
+
+    async def _handle_session_query_request(
+        self,
+        base_request: JSONRPCRequest,
+        params: dict[str, Any],
+    ) -> Response:
         query: dict[str, Any] = {}
         raw_query = params.get("query")
         if isinstance(raw_query, dict):
@@ -394,10 +448,134 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
         if base_request.id is None:
             return Response(status_code=204)
 
+        return self._jsonrpc_success_response(
+            base_request.id,
+            result,
+        )
+
+    async def _handle_interrupt_callback_request(
+        self,
+        base_request: JSONRPCRequest,
+        params: dict[str, Any],
+    ) -> Response:
+        request_id = params.get("request_id") or params.get("requestID") or params.get("id")
+        if not isinstance(request_id, str) or not request_id.strip():
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="Missing required params.request_id",
+                        data={"type": "MISSING_FIELD", "field": "request_id"},
+                    )
+                ),
+            )
+        request_id = request_id.strip()
+
+        try:
+            if base_request.method == self._method_reply_permission:
+                raw_reply = params.get("reply")
+                if raw_reply is None:
+                    raw_reply = params.get("decision")
+                reply, decision = _normalize_permission_reply(raw_reply)
+                message = params.get("message")
+                if message is not None and not isinstance(message, str):
+                    raise ValueError("message must be a string")
+                raw_session_id = params.get("session_id")
+                if raw_session_id is None:
+                    raw_session_id = params.get("sessionID")
+                if raw_session_id is not None and not isinstance(raw_session_id, str):
+                    raise ValueError("session_id must be a string")
+                await self._opencode_client.permission_reply(
+                    request_id,
+                    reply=reply,
+                    message=message,
+                    session_id=raw_session_id,
+                )
+                result: dict[str, Any] = {
+                    "ok": True,
+                    "request_id": request_id,
+                    "decision": decision,
+                    "reply": reply,
+                }
+            elif base_request.method == self._method_reply_question:
+                answers = _parse_question_answers(params.get("answers"))
+                await self._opencode_client.question_reply(
+                    request_id,
+                    answers=answers,
+                )
+                result = {
+                    "ok": True,
+                    "request_id": request_id,
+                    "answers": answers,
+                }
+            else:
+                await self._opencode_client.question_reject(request_id)
+                result = {
+                    "ok": True,
+                    "request_id": request_id,
+                    "rejected": True,
+                }
+        except ValueError as exc:
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message=str(exc),
+                        data={"type": "INVALID_FIELD"},
+                    )
+                ),
+            )
+        except httpx.HTTPStatusError as exc:
+            upstream_status = exc.response.status_code
+            if upstream_status == 404:
+                return self._generate_error_response(
+                    base_request.id,
+                    JSONRPCError(
+                        code=ERR_INTERRUPT_NOT_FOUND,
+                        message="Interrupt request not found",
+                        data={
+                            "type": "INTERRUPT_REQUEST_NOT_FOUND",
+                            "request_id": request_id,
+                        },
+                    ),
+                )
+            return self._generate_error_response(
+                base_request.id,
+                JSONRPCError(
+                    code=ERR_UPSTREAM_HTTP_ERROR,
+                    message="Upstream OpenCode error",
+                    data={
+                        "type": "UPSTREAM_HTTP_ERROR",
+                        "upstream_status": upstream_status,
+                        "request_id": request_id,
+                    },
+                ),
+            )
+        except httpx.HTTPError:
+            return self._generate_error_response(
+                base_request.id,
+                JSONRPCError(
+                    code=ERR_UPSTREAM_UNREACHABLE,
+                    message="Upstream OpenCode unreachable",
+                    data={"type": "UPSTREAM_UNREACHABLE", "request_id": request_id},
+                ),
+            )
+        except Exception as exc:
+            logger.exception("OpenCode interrupt callback JSON-RPC method failed")
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(root=InternalError(message=str(exc))),
+            )
+
+        if base_request.id is None:
+            return Response(status_code=204)
+        return self._jsonrpc_success_response(base_request.id, result)
+
+    def _jsonrpc_success_response(self, request_id: str | int, result: Any) -> JSONResponse:
         return JSONResponse(
             {
                 "jsonrpc": "2.0",
-                "id": base_request.id,
+                "id": request_id,
                 "result": result,
             }
         )

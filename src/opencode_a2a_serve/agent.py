@@ -65,6 +65,8 @@ _TOKEN_USAGE_CURRENCY_KEYS = (
     "currency_code",
     "currencycode",
 )
+_INTERRUPT_ASKED_EVENT_TYPES = {"permission.asked", "question.asked"}
+_INTERRUPT_RESOLVED_EVENT_TYPES = {"permission.replied", "question.replied", "question.rejected"}
 
 
 class BlockType(str, Enum):
@@ -106,6 +108,7 @@ class _StreamOutputState:
     event_id_namespace: str
     content_buffers: dict[BlockType, str] = field(default_factory=dict)
     token_usage: dict[str, Any] | None = None
+    pending_interrupt_request_ids: set[str] = field(default_factory=set)
     saw_any_chunk: bool = False
     emitted_stream_chunk: bool = False
     sequence: int = 0
@@ -169,6 +172,18 @@ class _StreamOutputState:
 
     def ingest_token_usage(self, usage: Mapping[str, Any] | None) -> None:
         self.token_usage = _merge_token_usage(self.token_usage, usage)
+
+    def mark_interrupt_pending(self, request_id: str) -> bool:
+        normalized = request_id.strip()
+        if not normalized:
+            return False
+        if normalized in self.pending_interrupt_request_ids:
+            return False
+        self.pending_interrupt_request_ids.add(normalized)
+        return True
+
+    def clear_interrupt_pending(self, request_id: str) -> None:
+        self.pending_interrupt_request_ids.discard(request_id.strip())
 
 
 class _TTLCache:
@@ -555,6 +570,8 @@ class OpencodeAgentExecutor(AgentExecutor):
                 stream_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await stream_task
+            for request_id in tuple(stream_state.pending_interrupt_request_ids):
+                self._client.discard_interrupt_request(request_id)
             if session_lock and session_lock.locked():
                 session_lock.release()
             async with self._lock:
@@ -844,6 +861,37 @@ class OpencodeAgentExecutor(AgentExecutor):
                     chunk.text,
                 )
 
+        async def _emit_interrupt_status(
+            *,
+            state: TaskState,
+            request_id: str,
+            interrupt_type: str,
+            event_type: str,
+            details: Mapping[str, Any],
+        ) -> None:
+            sequence = stream_state.next_sequence()
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=task_id,
+                    context_id=context_id,
+                    status=TaskStatus(state=state),
+                    final=False,
+                    metadata={
+                        "opencode": {
+                            "session_id": session_id,
+                            "message_id": stream_state.resolve_message_id(None),
+                            "event_id": stream_state.build_event_id(sequence),
+                            "interrupt": {
+                                "request_id": request_id,
+                                "type": interrupt_type,
+                                "event_type": event_type,
+                                "details": dict(details),
+                            },
+                        }
+                    },
+                )
+            )
+
         def _new_chunk(
             *,
             text: str,
@@ -988,6 +1036,8 @@ class OpencodeAgentExecutor(AgentExecutor):
                         if stop_event.is_set():
                             break
                         event_type = event.get("type")
+                        if not isinstance(event_type, str):
+                            continue
                         props = event.get("properties")
                         if not isinstance(props, Mapping):
                             continue
@@ -996,6 +1046,25 @@ class OpencodeAgentExecutor(AgentExecutor):
                             usage = _extract_token_usage(event)
                             if usage is not None:
                                 stream_state.ingest_token_usage(usage)
+                            asked = _extract_interrupt_asked_event(event)
+                            if asked is not None:
+                                request_id = asked["request_id"]
+                                if stream_state.mark_interrupt_pending(request_id):
+                                    self._client.remember_interrupt_request(
+                                        request_id=request_id,
+                                        session_id=session_id,
+                                    )
+                                    await _emit_interrupt_status(
+                                        state=TaskState.input_required,
+                                        request_id=request_id,
+                                        interrupt_type=asked["interrupt_type"],
+                                        event_type=event_type,
+                                        details=asked["details"],
+                                    )
+                            resolved = _extract_interrupt_resolved_event(event)
+                            if resolved is not None:
+                                stream_state.clear_interrupt_pending(resolved["request_id"])
+                                self._client.discard_interrupt_request(resolved["request_id"])
                         if event_type not in {"message.part.updated", "message.part.delta"}:
                             continue
                         part = props.get("part")
@@ -1390,6 +1459,75 @@ def _extract_event_session_id(event: Mapping[str, Any]) -> str | None:
         if candidate:
             return candidate
     return None
+
+
+def _extract_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        normalized = item.strip()
+        if normalized:
+            result.append(normalized)
+    return result
+
+
+def _extract_interrupt_request_id(props: Mapping[str, Any]) -> str | None:
+    return _extract_first_nonempty_string(
+        props,
+        ("requestID", "requestId", "request_id", "id", "permissionID", "permissionId"),
+    )
+
+
+def _extract_interrupt_asked_event(event: Mapping[str, Any]) -> dict[str, Any] | None:
+    event_type = event.get("type")
+    if event_type not in _INTERRUPT_ASKED_EVENT_TYPES:
+        return None
+    props = event.get("properties")
+    if not isinstance(props, Mapping):
+        return None
+    request_id = _extract_interrupt_request_id(props)
+    if not request_id:
+        return None
+    if event_type == "permission.asked":
+        details: dict[str, Any] = {
+            "permission": props.get("permission"),
+            "patterns": _extract_string_list(props.get("patterns")),
+            "always": _extract_string_list(props.get("always")),
+        }
+        tool = props.get("tool")
+        if isinstance(tool, Mapping):
+            details["tool"] = dict(tool)
+        return {
+            "request_id": request_id,
+            "interrupt_type": "permission",
+            "details": details,
+        }
+    questions = props.get("questions")
+    details = {"questions": questions if isinstance(questions, list) else []}
+    tool = props.get("tool")
+    if isinstance(tool, Mapping):
+        details["tool"] = dict(tool)
+    return {
+        "request_id": request_id,
+        "interrupt_type": "question",
+        "details": details,
+    }
+
+
+def _extract_interrupt_resolved_event(event: Mapping[str, Any]) -> dict[str, str] | None:
+    event_type = event.get("type")
+    if event_type not in _INTERRUPT_RESOLVED_EVENT_TYPES:
+        return None
+    props = event.get("properties")
+    if not isinstance(props, Mapping):
+        return None
+    request_id = _extract_interrupt_request_id(props)
+    if not request_id:
+        return None
+    return {"request_id": request_id, "event_type": event_type}
 
 
 def _extract_stream_message_id(part: Mapping[str, Any], props: Mapping[str, Any]) -> str | None:

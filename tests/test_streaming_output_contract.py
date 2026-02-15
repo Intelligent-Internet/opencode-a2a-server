@@ -1,7 +1,7 @@
 import asyncio
 
 import pytest
-from a2a.types import TaskArtifactUpdateEvent, TaskStatusUpdateEvent
+from a2a.types import TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
 
 from opencode_a2a_serve.agent import OpencodeAgentExecutor
 from opencode_a2a_serve.opencode_client import OpencodeMessage
@@ -27,6 +27,7 @@ class DummyStreamingClient:
         self.max_in_flight_send = 0
         self.stream_timeout = None
         self.directory = None
+        self._interrupt_sessions: dict[str, str] = {}
         self.settings = make_settings(
             a2a_bearer_token="test",
             opencode_base_url="http://localhost",
@@ -68,6 +69,15 @@ class DummyStreamingClient:
                 break
             await asyncio.sleep(0)
             yield event
+
+    def remember_interrupt_request(self, *, request_id: str, session_id: str) -> None:
+        self._interrupt_sessions[request_id] = session_id
+
+    def resolve_interrupt_session(self, request_id: str) -> str | None:
+        return self._interrupt_sessions.get(request_id)
+
+    def discard_interrupt_request(self, request_id: str) -> None:
+        self._interrupt_sessions.pop(request_id, None)
 
 
 def _event(
@@ -131,6 +141,20 @@ def _finalized_event(*, session_id: str, usage: dict) -> dict:
         "properties": {
             "sessionID": session_id,
             "usage": usage,
+        },
+    }
+
+
+def _permission_asked_event(*, session_id: str, request_id: str) -> dict:
+    return {
+        "type": "permission.asked",
+        "properties": {
+            "id": request_id,
+            "sessionID": session_id,
+            "permission": "read",
+            "patterns": ["/data/project/.env.secret"],
+            "always": ["/data/project/.env.example"],
+            "tool": {"messageID": "msg-tool-1", "callID": "call-tool-1"},
         },
     }
 
@@ -341,6 +365,42 @@ async def test_streaming_includes_usage_in_final_status_metadata() -> None:
     assert usage["output_tokens"] == 4
     assert usage["total_tokens"] == 16
     assert usage["cost"] == 0.0012
+
+
+@pytest.mark.asyncio
+async def test_streaming_emits_interrupt_status_for_permission_asked_event() -> None:
+    client = DummyStreamingClient(
+        stream_events_payload=[
+            _permission_asked_event(session_id="ses-1", request_id="perm-req-1"),
+            _permission_asked_event(session_id="ses-1", request_id="perm-req-1"),
+            _event(session_id="ses-1", role="assistant", part_type="text", delta="answer"),
+        ],
+        response_text="answer",
+    )
+    executor = OpencodeAgentExecutor(client, streaming_enabled=True)
+    executor._should_stream = lambda context: True  # type: ignore[method-assign]
+    queue = DummyEventQueue()
+
+    await executor.execute(
+        make_request_context(task_id="task-perm", context_id="ctx-perm", text="hello"),
+        queue,
+    )
+
+    interrupt_statuses = [
+        event
+        for event in queue.events
+        if isinstance(event, TaskStatusUpdateEvent)
+        and event.final is False
+        and (event.metadata or {}).get("opencode", {}).get("interrupt", {}).get("type")
+        == "permission"
+    ]
+    assert len(interrupt_statuses) == 1
+    interrupt = interrupt_statuses[0].metadata["opencode"]["interrupt"]
+    assert interrupt["request_id"] == "perm-req-1"
+    assert interrupt["event_type"] == "permission.asked"
+    assert interrupt["details"]["permission"] == "read"
+    assert "/data/project/.env.secret" in interrupt["details"]["patterns"]
+    assert interrupt_statuses[0].status.state == TaskState.input_required
 
 
 def _unique(items: list[str]) -> list[str]:
