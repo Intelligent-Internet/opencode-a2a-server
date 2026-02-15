@@ -1142,72 +1142,58 @@ def _extract_stream_role(part: Mapping[str, Any], props: Mapping[str, Any]) -> s
     return _normalize_role(role)
 
 
+def _extract_first_nonempty_string(
+    source: Mapping[str, Any] | None,
+    keys: tuple[str, ...],
+) -> str | None:
+    if not isinstance(source, Mapping):
+        return None
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, str):
+            normalized = value.strip()
+            if normalized:
+                return normalized
+    return None
+
+
 def _extract_stream_session_id(part: Mapping[str, Any], props: Mapping[str, Any]) -> str | None:
     session_keys = ("sessionID", "sessionId", "session_id")
-    for key in session_keys:
-        value = part.get(key)
-        if isinstance(value, str) and value:
-            return value
-    for key in session_keys:
-        value = props.get(key)
-        if isinstance(value, str) and value:
-            return value
+    for source in (part, props):
+        candidate = _extract_first_nonempty_string(source, session_keys)
+        if candidate:
+            return candidate
     message = props.get("message")
-    if isinstance(message, Mapping):
-        for key in session_keys:
-            value = message.get(key)
-            if isinstance(value, str) and value:
-                return value
+    candidate = _extract_first_nonempty_string(message, session_keys)
+    if candidate:
+        return candidate
     return None
 
 
 def _extract_stream_message_id(part: Mapping[str, Any], props: Mapping[str, Any]) -> str | None:
     message_keys = ("messageID", "messageId", "message_id", "id")
-    for key in message_keys:
-        value = part.get(key)
-        if isinstance(value, str):
-            normalized = value.strip()
-            if normalized:
-                return normalized
-    for key in message_keys:
-        value = props.get(key)
-        if isinstance(value, str):
-            normalized = value.strip()
-            if normalized:
-                return normalized
+    for source in (part, props):
+        candidate = _extract_first_nonempty_string(source, message_keys)
+        if candidate:
+            return candidate
     message = props.get("message")
     if isinstance(message, Mapping):
-        for key in message_keys:
-            value = message.get(key)
-            if isinstance(value, str):
-                normalized = value.strip()
-                if normalized:
-                    return normalized
+        candidate = _extract_first_nonempty_string(message, message_keys)
+        if candidate:
+            return candidate
         info = message.get("info")
-        if isinstance(info, Mapping):
-            for key in message_keys:
-                value = info.get(key)
-                if isinstance(value, str):
-                    normalized = value.strip()
-                    if normalized:
-                        return normalized
+        candidate = _extract_first_nonempty_string(info, message_keys)
+        if candidate:
+            return candidate
     return None
 
 
 def _extract_stream_part_id(part: Mapping[str, Any], props: Mapping[str, Any]) -> str | None:
     part_keys = ("partID", "partId", "part_id", "id")
-    for key in part_keys:
-        value = part.get(key)
-        if isinstance(value, str):
-            normalized = value.strip()
-            if normalized:
-                return normalized
-    for key in part_keys:
-        value = props.get(key)
-        if isinstance(value, str):
-            normalized = value.strip()
-            if normalized:
-                return normalized
+    for source in (part, props):
+        candidate = _extract_first_nonempty_string(source, part_keys)
+        if candidate:
+            return candidate
     return None
 
 

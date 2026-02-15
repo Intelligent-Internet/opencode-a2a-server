@@ -5,19 +5,8 @@ from a2a.server.agent_execution import RequestContext
 from a2a.types import Message, MessageSendParams, Role, TaskArtifactUpdateEvent, TextPart
 
 from opencode_a2a_serve.agent import OpencodeAgentExecutor
-from opencode_a2a_serve.config import Settings
 from opencode_a2a_serve.opencode_client import OpencodeMessage
-
-
-class DummyEventQueue:
-    def __init__(self) -> None:
-        self.events = []
-
-    async def enqueue_event(self, event) -> None:  # noqa: ANN001
-        self.events.append(event)
-
-    async def close(self) -> None:
-        return None
+from tests.helpers import DummyEventQueue, make_settings
 
 
 class DummyStreamingClient:
@@ -37,9 +26,9 @@ class DummyStreamingClient:
         self.max_in_flight_send = 0
         self.stream_timeout = None
         self.directory = None
-        self.settings = Settings(
-            A2A_BEARER_TOKEN="test",
-            OPENCODE_BASE_URL="http://localhost",
+        self.settings = make_settings(
+            a2a_bearer_token="test",
+            opencode_base_url="http://localhost",
         )
 
     async def create_session(
