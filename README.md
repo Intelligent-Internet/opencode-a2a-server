@@ -172,7 +172,7 @@ curl -sS http://127.0.0.1:8000/ \
     "jsonrpc": "2.0",
     "id": 1,
     "method": "opencode.sessions.list",
-    "params": {"page": 1, "size": 20}
+    "params": {"limit": 20}
   }'
 ```
 
@@ -188,8 +188,7 @@ curl -sS http://127.0.0.1:8000/ \
     "method": "opencode.sessions.messages.list",
     "params": {
       "session_id": "<session_id>",
-      "page": 1,
-      "size": 50
+      "limit": 50
     }
   }'
 ```

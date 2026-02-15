@@ -151,8 +151,13 @@ class DummyChatOpencodeClient:
 
 class DummySessionQueryOpencodeClient:
     def __init__(self, _settings: Settings) -> None:
-        self._sessions_payload = {"items": [{"id": "s-1"}]}
-        self._messages_payload = {"items": [{"id": "m-1", "text": "SECRET_HISTORY"}]}
+        self._sessions_payload = [{"id": "s-1", "title": "Session s-1"}]
+        self._messages_payload = [
+            {
+                "info": {"id": "m-1", "role": "assistant"},
+                "parts": [{"type": "text", "text": "SECRET_HISTORY"}],
+            }
+        ]
         self.last_sessions_params = None
         self.last_messages_params = None
 
@@ -174,10 +179,9 @@ class DummySessionQueryOpencodeClient:
         *,
         reply: str,
         message: str | None = None,
-        session_id: str | None = None,
         directory: str | None = None,
     ) -> bool:
-        del request_id, reply, message, session_id, directory
+        del request_id, reply, message, directory
         return True
 
     async def question_reply(

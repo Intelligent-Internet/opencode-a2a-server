@@ -31,8 +31,6 @@ from starlette.responses import StreamingResponse
 from .agent import OpencodeAgentExecutor
 from .config import Settings
 from .jsonrpc_ext import (
-    SESSION_QUERY_PAGINATION_DEFAULT_SIZE,
-    SESSION_QUERY_PAGINATION_MAX_SIZE,
     OpencodeSessionQueryJSONRPCApplication,
 )
 from .opencode_client import OpencodeClient
@@ -228,11 +226,9 @@ def build_agent_card(settings: Settings) -> AgentCard:
                         "deployment_context": deployment_context,
                         "pagination": {
                             # Explicit, discoverable contract for generic clients.
-                            "mode": "page_size",
+                            "mode": "limit",
                             "behavior": "passthrough",
-                            "params": ["page", "size"],
-                            "default_size": SESSION_QUERY_PAGINATION_DEFAULT_SIZE,
-                            "max_size": SESSION_QUERY_PAGINATION_MAX_SIZE,
+                            "params": ["limit"],
                         },
                         "errors": {
                             # JSON-RPC standard errors still apply (e.g. -32602 invalid params).
@@ -248,9 +244,8 @@ def build_agent_card(settings: Settings) -> AgentCard:
                         # Result envelope is A2A-first.
                         # items are serialized A2A Task/Message objects.
                         "result_envelope": {
-                            "fields": ["items", "pagination"],
+                            "fields": ["items"],
                             "items_field": "items",
-                            "pagination_field": "pagination",
                         },
                     },
                 ),
@@ -267,7 +262,7 @@ def build_agent_card(settings: Settings) -> AgentCard:
                             "permission.asked",
                             "question.asked",
                         ],
-                        "permission_reply_values": ["allow", "deny", "once", "always", "reject"],
+                        "permission_reply_values": ["once", "always", "reject"],
                         "question_reply_contract": {
                             "answers": "array of answer arrays (same order as asked questions)"
                         },
@@ -312,7 +307,7 @@ def build_agent_card(settings: Settings) -> AgentCard:
                 ),
                 tags=["opencode", "interrupt", "permission", "question"],
                 examples=[
-                    "Reply allow/deny to a permission request by request_id.",
+                    "Reply once/always/reject to a permission request by request_id.",
                     "Submit answers for a question request by request_id.",
                 ],
             ),

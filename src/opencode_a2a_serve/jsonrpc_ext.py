@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Any
 
 import httpx
@@ -29,27 +28,23 @@ from .text_parts import extract_text_from_parts
 
 logger = logging.getLogger(__name__)
 
-SESSION_QUERY_PAGINATION_DEFAULT_PAGE = 1
-SESSION_QUERY_PAGINATION_DEFAULT_SIZE = 20
-SESSION_QUERY_PAGINATION_MAX_SIZE = 100
-
 ERR_SESSION_NOT_FOUND = -32001
 ERR_UPSTREAM_UNREACHABLE = -32002
 ERR_UPSTREAM_HTTP_ERROR = -32003
 ERR_INTERRUPT_NOT_FOUND = -32004
 
 
-def _normalize_permission_reply(value: Any) -> tuple[str, str]:
+def _normalize_permission_reply(value: Any) -> str:
     if not isinstance(value, str):
         raise ValueError("reply must be a string")
     normalized = value.strip().lower()
-    if normalized in {"allow", "once"}:
-        return "once", "allow"
+    if normalized == "once":
+        return "once"
     if normalized == "always":
-        return "always", "allow"
-    if normalized in {"deny", "reject"}:
-        return "reject", "deny"
-    raise ValueError("reply must be one of: allow, deny, once, always, reject")
+        return "always"
+    if normalized == "reject":
+        return "reject"
+    raise ValueError("reply must be one of: once, always, reject")
 
 
 def _parse_question_answers(value: Any) -> list[list[str]]:
@@ -57,8 +52,6 @@ def _parse_question_answers(value: Any) -> list[list[str]]:
         raise ValueError("answers must be an array")
     if not value:
         return []
-    if all(isinstance(item, str) for item in value):
-        return [[item for item in value if item.strip()]]
     answers: list[list[str]] = []
     for index, item in enumerate(value):
         if not isinstance(item, list):
@@ -90,41 +83,25 @@ def _parse_positive_int(value: Any, *, field: str) -> int | None:
     return parsed
 
 
-UNTITLED_SESSION_TITLE = "Untitled session"
-
-
 def _extract_session_title(session: dict[str, Any]) -> str:
-    candidates: list[Any] = [
-        session.get("title"),
-        session.get("name"),
-    ]
-
-    summary = session.get("summary")
-    if isinstance(summary, dict):
-        candidates.append(summary.get("title"))
-
-    info = session.get("info")
-    if isinstance(info, dict):
-        info_summary = info.get("summary")
-        if isinstance(info_summary, dict):
-            candidates.append(info_summary.get("title"))
-
-    for value in candidates:
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-    # Stable placeholder so downstream can always render a label.
-    return UNTITLED_SESSION_TITLE
+    title = session.get("title")
+    if not isinstance(title, str):
+        return ""
+    return title.strip()
 
 
 def _as_a2a_session_task(session: Any) -> dict[str, Any] | None:
     if not isinstance(session, dict):
         return None
-    raw_id = session.get("id") or session.get("session_id") or session.get("sessionId")
-    if not isinstance(raw_id, str) or not raw_id.strip():
+    raw_id = session.get("id")
+    if not isinstance(raw_id, str):
         return None
     session_id = raw_id.strip()
+    if not session_id:
+        return None
     title = _extract_session_title(session)
+    if not title:
+        return None
     task = Task(
         id=session_id,
         context_id=session_id,
@@ -140,21 +117,21 @@ def _as_a2a_message(session_id: str, item: Any) -> dict[str, Any] | None:
         return None
 
     info = item.get("info")
-    raw_id = item.get("id") or item.get("message_id") or item.get("messageId")
-    if raw_id is None and isinstance(info, dict):
-        raw_id = info.get("id") or info.get("messageID") or info.get("messageId")
-    message_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else str(uuid.uuid4())
+    if not isinstance(info, dict):
+        return None
+    raw_id = info.get("id")
+    if not isinstance(raw_id, str):
+        return None
+    message_id = raw_id.strip()
+    if not message_id:
+        return None
 
-    role_raw = item.get("role")
-    if not isinstance(role_raw, str) and isinstance(info, dict):
-        role_raw = info.get("role")
+    role_raw = info.get("role")
     role = Role.agent
     if isinstance(role_raw, str) and role_raw.strip().lower() == "user":
         role = Role.user
 
-    text = item.get("text")
-    if not isinstance(text, str):
-        text = extract_text_from_parts(item.get("parts"))
+    text = extract_text_from_parts(item.get("parts"))
 
     msg = Message(
         message_id=message_id,
@@ -167,62 +144,11 @@ def _as_a2a_message(session_id: str, item: Any) -> dict[str, Any] | None:
 
 
 def _extract_raw_items(raw_result: Any, *, kind: str) -> list[Any]:
-    """Extract list payloads from OpenCode responses.
-
-    OpenCode serve does not guarantee a stable envelope. In the wild, list endpoints may return:
-    - a top-level list
-    - a dict with the list under a non-standard key (e.g. "sessions", "messages", "data")
-    - a dict where there is exactly one list-valued field (plus metadata/pagination)
-
-    We accept common variants and fall back to a conservative heuristic.
-    """
+    """Extract list payloads from OpenCode responses."""
     if isinstance(raw_result, list):
         return raw_result
 
-    if not isinstance(raw_result, dict):
-        return []
-
-    if kind == "sessions":
-        candidate_keys = ["items", "sessions", "data", "results"]
-    elif kind == "messages":
-        candidate_keys = ["items", "messages", "data", "results"]
-    else:
-        candidate_keys = ["items", "data", "results"]
-
-    # Common case: { "items": [...] } or { "sessions": [...] } / { "messages": [...] }.
-    for key in candidate_keys:
-        value = raw_result.get(key)
-        if isinstance(value, list):
-            return value
-
-    # Nested wrappers: { "data": { "items": [...] } } etc (one level deep).
-    for key in ("data", "result"):
-        nested = raw_result.get(key)
-        if not isinstance(nested, dict):
-            continue
-        for nested_key in candidate_keys:
-            value = nested.get(nested_key)
-            if isinstance(value, list):
-                return value
-
-    # Heuristic: if there's exactly one list-valued field, treat it as the payload.
-    list_keys = [k for k, v in raw_result.items() if isinstance(v, list)]
-    if len(list_keys) == 1:
-        guessed_key = list_keys[0]
-        logger.debug(
-            "OpenCode %s list payload missing standard keys=%s; using list field key=%s",
-            kind,
-            candidate_keys,
-            guessed_key,
-        )
-        return raw_result[guessed_key]
-
-    # Keep behavior stable: return [] and do not raise. Log keys for diagnosis (no content).
-    logger.debug(
-        "OpenCode %s list payload has no list field; type=dict keys=%s",
-        kind,
-        sorted(raw_result.keys()),
-    )
+    logger.warning("OpenCode %s payload is not a list; type=%s", kind, type(raw_result).__name__)
     return []
 
 
@@ -299,60 +225,76 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
     ) -> Response:
         query: dict[str, Any] = {}
         raw_query = params.get("query")
-        if isinstance(raw_query, dict):
-            query.update(raw_query)
-
-        # Pagination contract: page/size only.
-        if "cursor" in params or "limit" in params:
+        if raw_query is not None and not isinstance(raw_query, dict):
             return self._generate_error_response(
                 base_request.id,
                 A2AError(
                     root=InvalidParamsError(
-                        message=(
-                            "Only page/size pagination is supported (cursor/limit not supported)."
-                        ),
+                        message="query must be an object",
+                        data={"type": "INVALID_FIELD", "field": "query"},
+                    )
+                ),
+            )
+        if isinstance(raw_query, dict):
+            query.update(raw_query)
+
+        if "cursor" in params or "page" in params or "size" in params:
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="Only limit pagination is supported",
                         data={
                             "type": "INVALID_PAGINATION_MODE",
-                            "supported": ["page", "size"],
-                            "unsupported": ["cursor", "limit"],
+                            "supported": ["limit"],
+                            "unsupported": ["cursor", "page", "size"],
+                        },
+                    )
+                ),
+            )
+        if "cursor" in query or "page" in query or "size" in query:
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="Only limit pagination is supported",
+                        data={
+                            "type": "INVALID_PAGINATION_MODE",
+                            "supported": ["limit"],
+                            "unsupported": ["cursor", "page", "size"],
                         },
                     )
                 ),
             )
 
+        if "limit" in params and "limit" in query and params["limit"] != query["limit"]:
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="limit is ambiguous between params.limit and params.query.limit",
+                        data={
+                            "type": "INVALID_FIELD",
+                            "field": "limit",
+                        },
+                    )
+                ),
+            )
+        raw_limit = params.get("limit", query.get("limit"))
         try:
-            page = _parse_positive_int(params.get("page"), field="page")
-            size = _parse_positive_int(params.get("size"), field="size")
+            limit = _parse_positive_int(raw_limit, field="limit")
         except ValueError as exc:
             return self._generate_error_response(
                 base_request.id,
                 A2AError(
                     root=InvalidParamsError(
                         message=str(exc),
-                        data={"type": "INVALID_FIELD"},
+                        data={"type": "INVALID_FIELD", "field": "limit"},
                     )
                 ),
             )
-
-        if size is not None and size > SESSION_QUERY_PAGINATION_MAX_SIZE:
-            return self._generate_error_response(
-                base_request.id,
-                A2AError(
-                    root=InvalidParamsError(
-                        message=f"size must be <= {SESSION_QUERY_PAGINATION_MAX_SIZE}",
-                        data={
-                            "type": "SIZE_TOO_LARGE",
-                            "field": "size",
-                            "max_size": SESSION_QUERY_PAGINATION_MAX_SIZE,
-                        },
-                    )
-                ),
-            )
-
-        if page is not None:
-            query["page"] = page
-        if size is not None:
-            query["size"] = size
+        if limit is not None:
+            query["limit"] = limit
 
         session_id: str | None = None
         try:
@@ -434,14 +376,6 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
 
         result = {
             "items": items,
-            "pagination": {
-                "mode": "page_size",
-                "page": page,
-                "size": size,
-                "default_page": SESSION_QUERY_PAGINATION_DEFAULT_PAGE,
-                "default_size": SESSION_QUERY_PAGINATION_DEFAULT_SIZE,
-                "max_size": SESSION_QUERY_PAGINATION_MAX_SIZE,
-            },
         }
 
         # Notifications (id omitted) should not yield a response.
@@ -458,7 +392,7 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
         base_request: JSONRPCRequest,
         params: dict[str, Any],
     ) -> Response:
-        request_id = params.get("request_id") or params.get("requestID") or params.get("id")
+        request_id = params.get("request_id")
         if not isinstance(request_id, str) or not request_id.strip():
             return self._generate_error_response(
                 base_request.id,
@@ -481,32 +415,39 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                     )
                 ),
             )
+        if base_request.method == self._method_reply_permission:
+            allowed_fields = {"request_id", "reply", "message", "directory"}
+        elif base_request.method == self._method_reply_question:
+            allowed_fields = {"request_id", "answers", "directory"}
+        else:
+            allowed_fields = {"request_id", "directory"}
+        unknown_fields = sorted(set(params) - allowed_fields)
+        if unknown_fields:
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message=f"Unsupported fields: {', '.join(unknown_fields)}",
+                        data={"type": "INVALID_FIELD", "fields": unknown_fields},
+                    )
+                ),
+            )
 
         try:
             if base_request.method == self._method_reply_permission:
-                raw_reply = params.get("reply")
-                if raw_reply is None:
-                    raw_reply = params.get("decision")
-                reply, decision = _normalize_permission_reply(raw_reply)
+                reply = _normalize_permission_reply(params.get("reply"))
                 message = params.get("message")
                 if message is not None and not isinstance(message, str):
                     raise ValueError("message must be a string")
-                raw_session_id = params.get("session_id")
-                if raw_session_id is None:
-                    raw_session_id = params.get("sessionID")
-                if raw_session_id is not None and not isinstance(raw_session_id, str):
-                    raise ValueError("session_id must be a string")
                 await self._opencode_client.permission_reply(
                     request_id,
                     reply=reply,
                     message=message,
-                    session_id=raw_session_id,
                     directory=directory,
                 )
                 result: dict[str, Any] = {
                     "ok": True,
                     "request_id": request_id,
-                    "decision": decision,
                     "reply": reply,
                 }
             elif base_request.method == self._method_reply_question:
@@ -526,7 +467,6 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                 result = {
                     "ok": True,
                     "request_id": request_id,
-                    "rejected": True,
                 }
         except ValueError as exc:
             return self._generate_error_response(

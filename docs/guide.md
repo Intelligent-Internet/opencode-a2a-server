@@ -157,7 +157,7 @@ curl -sS http://127.0.0.1:8000/ \
     "jsonrpc": "2.0",
     "id": 1,
     "method": "opencode.sessions.list",
-    "params": {"page": 1, "size": 20}
+    "params": {"limit": 20}
   }'
 ```
 
@@ -173,8 +173,7 @@ curl -sS http://127.0.0.1:8000/ \
     "method": "opencode.sessions.messages.list",
     "params": {
       "session_id": "<session_id>",
-      "page": 1,
-      "size": 50
+      "limit": 50
     }
   }'
 ```
@@ -186,8 +185,8 @@ clients can reply through JSON-RPC extension methods:
 
 - `opencode.permission.reply`
   - required: `request_id`
-  - required: `reply` (`allow` / `deny` / `once` / `always` / `reject`)
-  - optional: `message`, `session_id`
+  - required: `reply` (`once` / `always` / `reject`)
+  - optional: `message`
 - `opencode.question.reply`
   - required: `request_id`
   - required: `answers` (`Array<Array<string>>`)
@@ -206,7 +205,7 @@ curl -sS http://127.0.0.1:8000/ \
     "method": "opencode.permission.reply",
     "params": {
       "request_id": "<request_id>",
-      "reply": "allow"
+      "reply": "once"
     }
   }'
 ```

@@ -570,8 +570,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                 stream_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await stream_task
-            for request_id in tuple(stream_state.pending_interrupt_request_ids):
-                self._client.discard_interrupt_request(request_id)
             if session_lock and session_lock.locked():
                 session_lock.release()
             async with self._lock:
@@ -1050,10 +1048,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                             if asked is not None:
                                 request_id = asked["request_id"]
                                 if stream_state.mark_interrupt_pending(request_id):
-                                    self._client.remember_interrupt_request(
-                                        request_id=request_id,
-                                        session_id=session_id,
-                                    )
                                     await _emit_interrupt_status(
                                         state=TaskState.input_required,
                                         request_id=request_id,
@@ -1064,7 +1058,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                             resolved = _extract_interrupt_resolved_event(event)
                             if resolved is not None:
                                 stream_state.clear_interrupt_pending(resolved["request_id"])
-                                self._client.discard_interrupt_request(resolved["request_id"])
                         if event_type not in {"message.part.updated", "message.part.delta"}:
                             continue
                         part = props.get("part")
@@ -1474,10 +1467,17 @@ def _extract_string_list(value: Any) -> list[str]:
     return result
 
 
-def _extract_interrupt_request_id(props: Mapping[str, Any]) -> str | None:
+def _extract_interrupt_asked_request_id(props: Mapping[str, Any]) -> str | None:
     return _extract_first_nonempty_string(
         props,
-        ("requestID", "requestId", "request_id", "id", "permissionID", "permissionId"),
+        ("id",),
+    )
+
+
+def _extract_interrupt_resolved_request_id(props: Mapping[str, Any]) -> str | None:
+    return _extract_first_nonempty_string(
+        props,
+        ("requestID",),
     )
 
 
@@ -1488,7 +1488,7 @@ def _extract_interrupt_asked_event(event: Mapping[str, Any]) -> dict[str, Any] |
     props = event.get("properties")
     if not isinstance(props, Mapping):
         return None
-    request_id = _extract_interrupt_request_id(props)
+    request_id = _extract_interrupt_asked_request_id(props)
     if not request_id:
         return None
     if event_type == "permission.asked":
@@ -1527,7 +1527,7 @@ def _extract_interrupt_resolved_event(event: Mapping[str, Any]) -> dict[str, str
     props = event.get("properties")
     if not isinstance(props, Mapping):
         return None
-    request_id = _extract_interrupt_request_id(props)
+    request_id = _extract_interrupt_resolved_request_id(props)
     if not request_id:
         return None
     return {"request_id": request_id, "event_type": event_type}

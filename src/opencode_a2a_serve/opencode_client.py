@@ -35,8 +35,6 @@ class OpencodeClient:
         self._variant = settings.opencode_variant
         self._stream_timeout = settings.opencode_timeout_stream
         self._log_payloads = settings.a2a_log_payloads
-        self._pending_interrupt_sessions: dict[str, str] = {}
-        self._max_pending_interrupt_sessions = 10000
         self._client = httpx.AsyncClient(
             base_url=self._base_url,
             timeout=settings.opencode_timeout,
@@ -57,21 +55,6 @@ class OpencodeClient:
     @property
     def settings(self) -> Settings:
         return self._settings
-
-    def remember_interrupt_request(self, *, request_id: str, session_id: str) -> None:
-        request = request_id.strip()
-        session = session_id.strip()
-        if not request or not session:
-            return
-        self._pending_interrupt_sessions[request] = session
-        while len(self._pending_interrupt_sessions) > self._max_pending_interrupt_sessions:
-            self._pending_interrupt_sessions.pop(next(iter(self._pending_interrupt_sessions)))
-
-    def resolve_interrupt_session(self, request_id: str) -> str | None:
-        return self._pending_interrupt_sessions.get(request_id.strip())
-
-    def discard_interrupt_request(self, request_id: str) -> None:
-        self._pending_interrupt_sessions.pop(request_id.strip(), None)
 
     def _query_params(self, directory: str | None = None) -> dict[str, str]:
         d = directory or self._directory
@@ -229,39 +212,20 @@ class OpencodeClient:
         *,
         reply: str,
         message: str | None = None,
-        session_id: str | None = None,
         directory: str | None = None,
     ) -> bool:
         payload: dict[str, Any] = {"reply": reply}
         if message:
             payload["message"] = message
         params = self._query_params(directory=directory)
-        try:
-            response = await self._client.post(
-                f"/permission/{request_id}/reply",
-                params=params,
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return bool(data) if isinstance(data, bool) else True
-        except httpx.HTTPStatusError as exc:
-            # Backward compatibility for older OpenCode route.
-            if exc.response.status_code != 404:
-                raise
-            legacy_session_id = session_id or self.resolve_interrupt_session(request_id)
-            if not legacy_session_id:
-                raise
-            legacy_response = await self._client.post(
-                f"/session/{legacy_session_id}/permissions/{request_id}",
-                params=params,
-                json={"response": reply},
-            )
-            legacy_response.raise_for_status()
-            data = legacy_response.json()
-            return bool(data) if isinstance(data, bool) else True
-        finally:
-            self.discard_interrupt_request(request_id)
+        response = await self._client.post(
+            f"/permission/{request_id}/reply",
+            params=params,
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return bool(data) if isinstance(data, bool) else True
 
     async def question_reply(
         self,
@@ -277,7 +241,6 @@ class OpencodeClient:
         )
         response.raise_for_status()
         data = response.json()
-        self.discard_interrupt_request(request_id)
         return bool(data) if isinstance(data, bool) else True
 
     async def question_reject(
@@ -292,5 +255,4 @@ class OpencodeClient:
         )
         response.raise_for_status()
         data = response.json()
-        self.discard_interrupt_request(request_id)
         return bool(data) if isinstance(data, bool) else True

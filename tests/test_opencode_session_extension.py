@@ -64,7 +64,7 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "opencode.sessions.list",
-                "params": {"page": 1, "size": 10},
+                "params": {"limit": 10},
             },
         )
         assert resp.status_code == 200
@@ -76,10 +76,9 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
         assert session["id"] == "s-1"
         assert session["contextId"] == "s-1"
         assert session["metadata"]["opencode"]["raw"]["id"] == "s-1"
-        assert session["metadata"]["opencode"]["title"] == "Untitled session"
+        assert session["metadata"]["opencode"]["title"] == "Session s-1"
         assert dummy.last_sessions_params is not None
-        assert dummy.last_sessions_params.get("page") == 1
-        assert dummy.last_sessions_params.get("size") == 10
+        assert dummy.last_sessions_params.get("limit") == 10
 
         resp = await client.post(
             "/",
@@ -88,7 +87,7 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
                 "jsonrpc": "2.0",
                 "id": 2,
                 "method": "opencode.sessions.messages.list",
-                "params": {"session_id": "s-1", "page": 2, "size": 5},
+                "params": {"session_id": "s-1", "limit": 5},
             },
         )
         assert resp.status_code == 200
@@ -101,8 +100,7 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
         assert message["parts"][0]["text"] == "SECRET_HISTORY"
         assert message["metadata"]["opencode"]["session_id"] == "s-1"
         assert dummy.last_messages_params is not None
-        assert dummy.last_messages_params.get("page") == 2
-        assert dummy.last_messages_params.get("size") == 5
+        assert dummy.last_messages_params.get("limit") == 5
 
 
 @pytest.mark.asyncio
@@ -144,7 +142,7 @@ async def test_session_query_extension_session_title_is_extracted_or_placeholder
     class TitlePayloadClient(DummyOpencodeClient):
         def __init__(self, _settings: Settings) -> None:
             super().__init__(_settings)
-            self._sessions_payload = {"items": [{"id": "s-1", "title": "My Session"}]}
+            self._sessions_payload = [{"id": "s-1", "title": "My Session"}]
 
     monkeypatch.setattr(app_module, "OpencodeClient", TitlePayloadClient)
     app = app_module.create_app(
@@ -172,14 +170,12 @@ async def test_session_query_extension_message_role_and_id_from_info(monkeypatch
     class InfoRoleClient(DummyOpencodeClient):
         def __init__(self, _settings: Settings) -> None:
             super().__init__(_settings)
-            self._messages_payload = {
-                "items": [
-                    {
-                        "info": {"id": "msg-1", "role": "user"},
-                        "parts": [{"type": "text", "text": "hello"}],
-                    }
-                ]
-            }
+            self._messages_payload = [
+                {
+                    "info": {"id": "msg-1", "role": "user"},
+                    "parts": [{"type": "text", "text": "hello"}],
+                }
+            ]
 
     monkeypatch.setattr(app_module, "OpencodeClient", InfoRoleClient)
     app = app_module.create_app(
@@ -213,8 +209,13 @@ async def test_session_query_extension_accepts_top_level_list_payload(monkeypatc
     class ListPayloadClient(DummyOpencodeClient):
         def __init__(self, _settings: Settings) -> None:
             super().__init__(_settings)
-            self._sessions_payload = [{"id": "s-1"}]
-            self._messages_payload = [{"id": "m-1", "text": "SECRET_HISTORY"}]
+            self._sessions_payload = [{"id": "s-1", "title": "s1"}]
+            self._messages_payload = [
+                {
+                    "info": {"id": "m-1", "role": "assistant"},
+                    "parts": [{"type": "text", "text": "SECRET_HISTORY"}],
+                }
+            ]
 
     monkeypatch.setattr(app_module, "OpencodeClient", ListPayloadClient)
     app = app_module.create_app(
@@ -248,7 +249,7 @@ async def test_session_query_extension_accepts_top_level_list_payload(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_session_query_extension_accepts_alternative_list_keys(monkeypatch):
+async def test_session_query_extension_rejects_non_list_wrapped_payload(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
     class AltKeyPayloadClient(DummyOpencodeClient):
@@ -271,7 +272,7 @@ async def test_session_query_extension_accepts_alternative_list_keys(monkeypatch
             json={"jsonrpc": "2.0", "id": 1, "method": "opencode.sessions.list", "params": {}},
         )
         payload = resp.json()
-        assert payload["result"]["items"][0]["id"] == "s-1"
+        assert payload["result"]["items"] == []
 
         resp = await client.post(
             "/",
@@ -284,8 +285,7 @@ async def test_session_query_extension_accepts_alternative_list_keys(monkeypatch
             },
         )
         payload = resp.json()
-        assert payload["result"]["items"][0]["contextId"] == "s-1"
-        assert payload["result"]["items"][0]["parts"][0]["text"] == "SECRET_HISTORY"
+        assert payload["result"]["items"] == []
 
 
 @pytest.mark.asyncio
@@ -321,7 +321,7 @@ async def test_session_query_extension_rejects_cursor_limit(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_session_query_extension_rejects_size_over_max(monkeypatch):
+async def test_session_query_extension_rejects_page_size_pagination(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
     dummy = DummyOpencodeClient(
@@ -432,7 +432,6 @@ async def test_interrupt_callback_extension_permission_reply(monkeypatch):
             *,
             reply: str,
             message: str | None = None,
-            session_id: str | None = None,
             directory: str | None = None,
         ) -> bool:
             self.permission_reply_calls.append(
@@ -440,7 +439,6 @@ async def test_interrupt_callback_extension_permission_reply(monkeypatch):
                     "request_id": request_id,
                     "reply": reply,
                     "message": message,
-                    "session_id": session_id,
                     "directory": directory,
                 }
             )
@@ -466,9 +464,8 @@ async def test_interrupt_callback_extension_permission_reply(monkeypatch):
                 "method": "opencode.permission.reply",
                 "params": {
                     "request_id": "perm-1",
-                    "reply": "allow",
+                    "reply": "once",
                     "message": "approved by operator",
-                    "session_id": "ses-1",
                     "directory": "/workspace",
                 },
             },
@@ -477,12 +474,40 @@ async def test_interrupt_callback_extension_permission_reply(monkeypatch):
         assert payload.get("error") is None
         assert payload["result"]["ok"] is True
         assert payload["result"]["request_id"] == "perm-1"
-        assert payload["result"]["decision"] == "allow"
         assert payload["result"]["reply"] == "once"
         assert len(dummy.permission_reply_calls) == 1
         assert dummy.permission_reply_calls[0]["request_id"] == "perm-1"
         assert dummy.permission_reply_calls[0]["reply"] == "once"
         assert dummy.permission_reply_calls[0]["directory"] == "/workspace"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_callback_extension_rejects_legacy_permission_fields(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 111,
+                "method": "opencode.permission.reply",
+                "params": {"requestID": "perm-legacy", "decision": "allow"},
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32602
 
 
 @pytest.mark.asyncio
@@ -554,7 +579,6 @@ async def test_interrupt_callback_extension_question_reply_and_reject(monkeypatc
         )
         reject_payload = reject_resp.json()
         assert reject_payload["result"]["ok"] is True
-        assert reject_payload["result"]["rejected"] is True
         assert dummy.question_reject_calls[0]["request_id"] == "q-2"
 
 
@@ -569,10 +593,9 @@ async def test_interrupt_callback_extension_maps_404_to_interrupt_not_found(monk
             *,
             reply: str,
             message: str | None = None,
-            session_id: str | None = None,
             directory: str | None = None,
         ) -> bool:
-            del request_id, reply, message, session_id, directory
+            del request_id, reply, message, directory
             request = httpx.Request("POST", "http://opencode/permission/x/reply")
             response = httpx.Response(404, request=request)
             raise httpx.HTTPStatusError("Not Found", request=request, response=response)
@@ -592,7 +615,7 @@ async def test_interrupt_callback_extension_maps_404_to_interrupt_not_found(monk
                 "jsonrpc": "2.0",
                 "id": 14,
                 "method": "opencode.permission.reply",
-                "params": {"request_id": "perm-404", "reply": "deny"},
+                "params": {"request_id": "perm-404", "reply": "reject"},
             },
         )
         payload = resp.json()
