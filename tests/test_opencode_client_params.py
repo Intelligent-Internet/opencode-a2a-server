@@ -4,16 +4,6 @@ from opencode_a2a_serve.opencode_client import OpencodeClient
 from tests.helpers import make_settings
 
 
-def _settings(*, directory: str | None):
-    return make_settings(
-        a2a_bearer_token="t-1",
-        opencode_directory=directory,
-        opencode_timeout=1.0,
-        a2a_log_level="DEBUG",
-        a2a_log_payloads=False,
-    )
-
-
 class _DummyResponse:
     def raise_for_status(self) -> None:
         return None
@@ -24,7 +14,15 @@ class _DummyResponse:
 
 @pytest.mark.asyncio
 async def test_merge_params_does_not_allow_directory_override(monkeypatch):
-    client = OpencodeClient(_settings(directory="/safe"))
+    client = OpencodeClient(
+        make_settings(
+            a2a_bearer_token="t-1",
+            opencode_directory="/safe",
+            opencode_timeout=1.0,
+            a2a_log_level="DEBUG",
+            a2a_log_payloads=False,
+        )
+    )
 
     seen = {}
 

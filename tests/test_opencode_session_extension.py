@@ -4,27 +4,8 @@ import httpx
 import pytest
 
 from opencode_a2a_serve.config import Settings
+from tests.helpers import DummySessionQueryOpencodeClient as DummyOpencodeClient
 from tests.helpers import make_settings
-
-
-class DummyOpencodeClient:
-    def __init__(self, _settings: Settings) -> None:
-        self._sessions_payload = {"items": [{"id": "s-1"}]}
-        self._messages_payload = {"items": [{"id": "m-1", "text": "SECRET_HISTORY"}]}
-        self.last_sessions_params = None
-        self.last_messages_params = None
-
-    async def close(self) -> None:
-        return None
-
-    async def list_sessions(self, *, params=None):
-        self.last_sessions_params = params
-        return self._sessions_payload
-
-    async def list_messages(self, session_id: str, *, params=None):
-        assert session_id
-        self.last_messages_params = params
-        return self._messages_payload
 
 
 def _settings(*, token: str, log_payloads: bool) -> Settings:

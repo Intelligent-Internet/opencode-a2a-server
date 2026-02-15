@@ -7,6 +7,7 @@ from a2a.server.agent_execution import RequestContext
 from a2a.server.context import ServerCallContext
 
 from opencode_a2a_serve.config import Settings
+from opencode_a2a_serve.opencode_client import OpencodeMessage
 
 
 def make_settings(**overrides: Any) -> Settings:
@@ -71,3 +72,70 @@ def configure_mock_client_runtime(
         overrides.update(settings_overrides)
     type(client).directory = PropertyMock(return_value=directory)
     type(client).settings = PropertyMock(return_value=make_settings(**overrides))
+
+
+class DummyChatOpencodeClient:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.created_sessions = 0
+        self.sent_session_ids: list[str] = []
+        self.stream_timeout = None
+        self.directory = None
+        self.settings = settings or make_settings(
+            a2a_bearer_token="test",
+            opencode_base_url="http://localhost",
+        )
+
+    async def close(self) -> None:
+        return None
+
+    async def create_session(
+        self,
+        title: str | None = None,
+        *,
+        directory: str | None = None,
+    ) -> str:
+        del title, directory
+        self.created_sessions += 1
+        return f"ses-created-{self.created_sessions}"
+
+    async def send_message(
+        self,
+        session_id: str,
+        text: str,
+        *,
+        directory: str | None = None,
+        timeout_override=None,  # noqa: ANN001
+    ) -> OpencodeMessage:
+        del directory, timeout_override
+        self.sent_session_ids.append(session_id)
+        return OpencodeMessage(
+            text=f"echo:{text}",
+            session_id=session_id,
+            message_id="m-1",
+            raw={},
+        )
+
+    async def stream_events(self, stop_event=None, *, directory: str | None = None):  # noqa: ANN001
+        del stop_event, directory
+        for _ in ():
+            yield {}
+
+
+class DummySessionQueryOpencodeClient:
+    def __init__(self, _settings: Settings) -> None:
+        self._sessions_payload = {"items": [{"id": "s-1"}]}
+        self._messages_payload = {"items": [{"id": "m-1", "text": "SECRET_HISTORY"}]}
+        self.last_sessions_params = None
+        self.last_messages_params = None
+
+    async def close(self) -> None:
+        return None
+
+    async def list_sessions(self, *, params=None):
+        self.last_sessions_params = params
+        return self._sessions_payload
+
+    async def list_messages(self, session_id: str, *, params=None):
+        assert session_id
+        self.last_messages_params = params
+        return self._messages_payload

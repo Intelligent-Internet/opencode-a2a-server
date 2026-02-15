@@ -3,9 +3,7 @@ import pytest
 from a2a.types import TransportProtocol
 
 from opencode_a2a_serve.app import build_agent_card, create_app
-from opencode_a2a_serve.config import Settings
-from opencode_a2a_serve.opencode_client import OpencodeMessage
-from tests.helpers import make_settings
+from tests.helpers import DummyChatOpencodeClient, make_settings
 
 
 def test_agent_card_declares_dual_stack_with_http_json_preferred() -> None:
@@ -25,51 +23,11 @@ def test_rest_subscription_route_matches_current_sdk_contract() -> None:
     assert "/v1/tasks/{id}:resubscribe" not in route_paths
 
 
-class DummyOpencodeClient:
-    def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        self.directory = None
-        self.stream_timeout = None
-
-    async def close(self) -> None:
-        return None
-
-    async def create_session(
-        self,
-        title: str | None = None,
-        *,
-        directory: str | None = None,
-    ) -> str:
-        del title, directory
-        return "ses-1"
-
-    async def send_message(
-        self,
-        session_id: str,
-        text: str,
-        *,
-        directory: str | None = None,
-        timeout_override=None,  # noqa: ANN001
-    ) -> OpencodeMessage:
-        del directory, timeout_override
-        return OpencodeMessage(
-            text=f"echo:{text}",
-            session_id=session_id,
-            message_id="m-1",
-            raw={},
-        )
-
-    async def stream_events(self, stop_event=None, *, directory: str | None = None):  # noqa: ANN001
-        del stop_event, directory
-        for _ in ():
-            yield {}
-
-
 @pytest.mark.asyncio
 async def test_dual_stack_send_accepts_transport_native_payloads(monkeypatch) -> None:
     import opencode_a2a_serve.app as app_module
 
-    monkeypatch.setattr(app_module, "OpencodeClient", DummyOpencodeClient)
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
     app = app_module.create_app(make_settings(a2a_bearer_token="test-token"))
     transport = httpx.ASGITransport(app=app)
     headers = {"Authorization": "Bearer test-token"}
@@ -107,7 +65,7 @@ async def test_dual_stack_send_accepts_transport_native_payloads(monkeypatch) ->
 async def test_dual_stack_send_rejects_cross_transport_payload_shapes(monkeypatch) -> None:
     import opencode_a2a_serve.app as app_module
 
-    monkeypatch.setattr(app_module, "OpencodeClient", DummyOpencodeClient)
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
     app = app_module.create_app(make_settings(a2a_bearer_token="test-token"))
     transport = httpx.ASGITransport(app=app)
     headers = {"Authorization": "Bearer test-token"}
