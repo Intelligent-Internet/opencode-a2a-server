@@ -45,7 +45,6 @@ class _NormalizedStreamChunk:
     append: bool
     block_type: BlockType
     source: str
-    event_type: str
     message_id: str | None
     role: str | None
 
@@ -431,7 +430,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                         artifact_metadata=_build_stream_artifact_metadata(
                             block_type=BlockType.TEXT,
                             source="final_snapshot",
-                            event_type="message.finalized",
                             message_id=resolved_message_id,
                             sequence=sequence,
                             event_id=stream_state.build_event_id(sequence),
@@ -779,7 +777,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                     artifact_metadata=_build_stream_artifact_metadata(
                         block_type=chunk.block_type,
                         source=chunk.source,
-                        event_type=chunk.event_type,
                         message_id=resolved_message_id,
                         role=chunk.role,
                         sequence=sequence,
@@ -801,7 +798,6 @@ class OpencodeAgentExecutor(AgentExecutor):
             append: bool,
             block_type: BlockType,
             source: str,
-            event_type: str,
             message_id: str | None,
             role: str | None,
         ) -> _NormalizedStreamChunk:
@@ -810,7 +806,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                 append=append,
                 block_type=block_type,
                 source=source,
-                event_type=event_type,
                 message_id=message_id,
                 role=role,
             )
@@ -847,7 +842,6 @@ class OpencodeAgentExecutor(AgentExecutor):
             state: _StreamPartState,
             delta_text: str,
             message_id: str | None,
-            event_type: str,
             source: str,
         ) -> list[_NormalizedStreamChunk]:
             if not delta_text:
@@ -862,7 +856,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                     append=True,
                     block_type=state.block_type,
                     source=source,
-                    event_type=event_type,
                     message_id=state.message_id,
                     role=state.role,
                 )
@@ -873,7 +866,6 @@ class OpencodeAgentExecutor(AgentExecutor):
             state: _StreamPartState,
             snapshot: str,
             message_id: str | None,
-            event_type: str,
             part_id: str,
         ) -> list[_NormalizedStreamChunk]:
             if message_id:
@@ -892,7 +884,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                         append=True,
                         block_type=state.block_type,
                         source="part_text_diff",
-                        event_type=event_type,
                         message_id=state.message_id,
                         role=state.role,
                     )
@@ -914,7 +905,6 @@ class OpencodeAgentExecutor(AgentExecutor):
             state: _StreamPartState,
             part: Mapping[str, Any],
             message_id: str | None,
-            event_type: str,
         ) -> list[_NormalizedStreamChunk]:
             tool_chunk = _serialize_tool_part(part)
             if not tool_chunk:
@@ -932,7 +922,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                     append=bool(previous),
                     block_type=state.block_type,
                     source="tool_part_update",
-                    event_type=event_type,
                     message_id=state.message_id,
                     role=state.role,
                 )
@@ -985,7 +974,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                                 state=state,
                                 delta_text=delta,
                                 message_id=message_id,
-                                event_type=event_type,
                                 source="delta_event",
                             )
                             if chunks:
@@ -1017,7 +1005,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                                     state=state,
                                     delta_text=buffered.delta,
                                     message_id=buffered.message_id,
-                                    event_type="message.part.delta",
                                     source="delta_event_buffered",
                                 )
                             )
@@ -1029,7 +1016,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                                     state=state,
                                     delta_text=delta,
                                     message_id=message_id,
-                                    event_type=event_type,
                                     source="delta",
                                 )
                             )
@@ -1039,7 +1025,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                                     state=state,
                                     part=part,
                                     message_id=message_id,
-                                    event_type=event_type,
                                 )
                             )
                         elif isinstance(part.get("text"), str):
@@ -1048,7 +1033,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                                     state=state,
                                     snapshot=part["text"],
                                     message_id=message_id,
-                                    event_type=event_type,
                                     part_id=part_id,
                                 )
                             )
@@ -1095,6 +1079,7 @@ async def _enqueue_artifact_update(
     artifact_metadata: Mapping[str, Any] | None = None,
     event_metadata: Mapping[str, Any] | None = None,
 ) -> None:
+    normalized_last_chunk = True if last_chunk is True else None
     artifact = Artifact(
         artifact_id=artifact_id,
         parts=[TextPart(text=text)],
@@ -1106,7 +1091,7 @@ async def _enqueue_artifact_update(
             context_id=context_id,
             artifact=artifact,
             append=append,
-            last_chunk=last_chunk,
+            last_chunk=normalized_last_chunk,
             metadata=dict(event_metadata) if event_metadata else None,
         )
     )
@@ -1116,7 +1101,6 @@ def _build_stream_artifact_metadata(
     *,
     block_type: BlockType,
     source: str,
-    event_type: str,
     message_id: str | None = None,
     role: str | None = None,
     sequence: int | None = None,
@@ -1125,7 +1109,6 @@ def _build_stream_artifact_metadata(
     opencode_meta: dict[str, Any] = {
         "block_type": block_type,
         "source": source,
-        "event_type": event_type,
     }
     if message_id:
         opencode_meta["message_id"] = message_id
