@@ -154,6 +154,7 @@ def _permission_asked_event(*, session_id: str, request_id: str) -> dict:
             "permission": "read",
             "patterns": ["/data/project/.env.secret"],
             "always": ["/data/project/.env.example"],
+            "metadata": {"path": "/data/project/.env.secret"},
             "tool": {"messageID": "msg-tool-1", "callID": "call-tool-1"},
         },
     }
@@ -400,6 +401,7 @@ async def test_streaming_emits_interrupt_status_for_permission_asked_event() -> 
     assert interrupt["event_type"] == "permission.asked"
     assert interrupt["details"]["permission"] == "read"
     assert "/data/project/.env.secret" in interrupt["details"]["patterns"]
+    assert interrupt["details"]["metadata"]["path"] == "/data/project/.env.secret"
     assert interrupt_statuses[0].status.state == TaskState.input_required
 
 

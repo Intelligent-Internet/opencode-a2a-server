@@ -470,6 +470,17 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                 ),
             )
         request_id = request_id.strip()
+        directory = params.get("directory")
+        if directory is not None and not isinstance(directory, str):
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="directory must be a string",
+                        data={"type": "INVALID_FIELD", "field": "directory"},
+                    )
+                ),
+            )
 
         try:
             if base_request.method == self._method_reply_permission:
@@ -490,6 +501,7 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                     reply=reply,
                     message=message,
                     session_id=raw_session_id,
+                    directory=directory,
                 )
                 result: dict[str, Any] = {
                     "ok": True,
@@ -502,6 +514,7 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                 await self._opencode_client.question_reply(
                     request_id,
                     answers=answers,
+                    directory=directory,
                 )
                 result = {
                     "ok": True,
@@ -509,7 +522,7 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                     "answers": answers,
                 }
             else:
-                await self._opencode_client.question_reject(request_id)
+                await self._opencode_client.question_reject(request_id, directory=directory)
                 result = {
                     "ok": True,
                     "request_id": request_id,

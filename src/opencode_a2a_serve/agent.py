@@ -1496,6 +1496,9 @@ def _extract_interrupt_asked_event(event: Mapping[str, Any]) -> dict[str, Any] |
             "permission": props.get("permission"),
             "patterns": _extract_string_list(props.get("patterns")),
             "always": _extract_string_list(props.get("always")),
+            "metadata": dict(props.get("metadata"))
+            if isinstance(props.get("metadata"), Mapping)
+            else {},
         }
         tool = props.get("tool")
         if isinstance(tool, Mapping):

@@ -469,6 +469,7 @@ async def test_interrupt_callback_extension_permission_reply(monkeypatch):
                     "reply": "allow",
                     "message": "approved by operator",
                     "session_id": "ses-1",
+                    "directory": "/workspace",
                 },
             },
         )
@@ -481,6 +482,7 @@ async def test_interrupt_callback_extension_permission_reply(monkeypatch):
         assert len(dummy.permission_reply_calls) == 1
         assert dummy.permission_reply_calls[0]["request_id"] == "perm-1"
         assert dummy.permission_reply_calls[0]["reply"] == "once"
+        assert dummy.permission_reply_calls[0]["directory"] == "/workspace"
 
 
 @pytest.mark.asyncio
