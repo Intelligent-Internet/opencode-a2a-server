@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, PropertyMock
 
 from a2a.server.agent_execution import RequestContext
 from a2a.server.context import ServerCallContext
+from a2a.types import Message, MessageSendParams, Role, TextPart
 
 from opencode_a2a_serve.config import Settings
 from opencode_a2a_serve.opencode_client import OpencodeMessage
@@ -72,6 +73,23 @@ def configure_mock_client_runtime(
         overrides.update(settings_overrides)
     type(client).directory = PropertyMock(return_value=directory)
     type(client).settings = PropertyMock(return_value=make_settings(**overrides))
+
+
+def make_request_context(
+    *,
+    task_id: str,
+    context_id: str,
+    text: str,
+    metadata: dict[str, Any] | None = None,
+    message_id: str = "req-1",
+) -> RequestContext:
+    message = Message(
+        message_id=message_id,
+        role=Role.user,
+        parts=[TextPart(text=text)],
+    )
+    params = MessageSendParams(message=message, metadata=metadata)
+    return RequestContext(request=params, task_id=task_id, context_id=context_id)
 
 
 class DummyChatOpencodeClient:

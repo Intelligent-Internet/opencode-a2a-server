@@ -1,21 +1,9 @@
 import asyncio
 
 import pytest
-from a2a.server.agent_execution import RequestContext
-from a2a.types import Message, MessageSendParams, Role, TextPart
 
 from opencode_a2a_serve.agent import OpencodeAgentExecutor
-from tests.helpers import DummyChatOpencodeClient, DummyEventQueue
-
-
-def _context(*, task_id: str, context_id: str, text: str, metadata: dict | None) -> RequestContext:
-    msg = Message(
-        message_id="msg-1",
-        role=Role.user,
-        parts=[TextPart(text=text)],
-    )
-    params = MessageSendParams(message=msg, metadata=metadata)
-    return RequestContext(request=params, task_id=task_id, context_id=context_id)
+from tests.helpers import DummyChatOpencodeClient, DummyEventQueue, make_request_context
 
 
 @pytest.mark.asyncio
@@ -24,7 +12,7 @@ async def test_agent_prefers_metadata_opencode_session_id() -> None:
     executor = OpencodeAgentExecutor(client, streaming_enabled=False)
     q = DummyEventQueue()
 
-    ctx = _context(
+    ctx = make_request_context(
         task_id="t-1",
         context_id="c-1",
         text="hello",
@@ -47,7 +35,7 @@ async def test_agent_caches_bound_session_id_for_followup_requests() -> None:
     )
     q = DummyEventQueue()
 
-    ctx1 = _context(
+    ctx1 = make_request_context(
         task_id="t-1",
         context_id="c-1",
         text="hello",
@@ -55,7 +43,7 @@ async def test_agent_caches_bound_session_id_for_followup_requests() -> None:
     )
     await executor.execute(ctx1, q)
 
-    ctx2 = _context(
+    ctx2 = make_request_context(
         task_id="t-2",
         context_id="c-1",
         text="follow",
@@ -89,7 +77,7 @@ async def test_agent_dedupes_concurrent_session_creates_per_context() -> None:
 
     async def run_one(task_id: str) -> None:
         q = DummyEventQueue()
-        ctx = _context(task_id=task_id, context_id="c-1", text="hi", metadata=None)
+        ctx = make_request_context(task_id=task_id, context_id="c-1", text="hi", metadata=None)
         await executor.execute(ctx, q)
 
     await asyncio.gather(run_one("t-1"), run_one("t-2"), run_one("t-3"))

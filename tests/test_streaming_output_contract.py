@@ -1,12 +1,11 @@
 import asyncio
 
 import pytest
-from a2a.server.agent_execution import RequestContext
-from a2a.types import Message, MessageSendParams, Role, TaskArtifactUpdateEvent, TextPart
+from a2a.types import TaskArtifactUpdateEvent
 
 from opencode_a2a_serve.agent import OpencodeAgentExecutor
 from opencode_a2a_serve.opencode_client import OpencodeMessage
-from tests.helpers import DummyEventQueue, make_settings
+from tests.helpers import DummyEventQueue, make_request_context, make_settings
 
 
 class DummyStreamingClient:
@@ -67,18 +66,6 @@ class DummyStreamingClient:
                 break
             await asyncio.sleep(0)
             yield event
-
-
-def _context(
-    *, task_id: str, context_id: str, text: str, metadata: dict | None = None
-) -> RequestContext:
-    message = Message(
-        message_id="req-1",
-        role=Role.user,
-        parts=[TextPart(text=text)],
-    )
-    params = MessageSendParams(message=message, metadata=metadata)
-    return RequestContext(request=params, task_id=task_id, context_id=context_id)
 
 
 def _event(
@@ -166,7 +153,9 @@ async def test_streaming_filters_user_echo_and_emits_single_artifact_block_types
     executor._should_stream = lambda context: True  # type: ignore[method-assign]
     queue = DummyEventQueue()
 
-    await executor.execute(_context(task_id="task-1", context_id="ctx-1", text=user_text), queue)
+    await executor.execute(
+        make_request_context(task_id="task-1", context_id="ctx-1", text=user_text), queue
+    )
 
     updates = _artifact_updates(queue)
     assert updates
@@ -197,7 +186,9 @@ async def test_streaming_does_not_send_duplicate_final_snapshot_when_chunks_exis
     executor._should_stream = lambda context: True  # type: ignore[method-assign]
     queue = DummyEventQueue()
 
-    await executor.execute(_context(task_id="task-2", context_id="ctx-2", text="hi"), queue)
+    await executor.execute(
+        make_request_context(task_id="task-2", context_id="ctx-2", text="hi"), queue
+    )
 
     final_updates = [
         event
@@ -221,7 +212,9 @@ async def test_streaming_emits_final_snapshot_only_when_stream_has_no_final_answ
     executor._should_stream = lambda context: True  # type: ignore[method-assign]
     queue = DummyEventQueue()
 
-    await executor.execute(_context(task_id="task-3", context_id="ctx-3", text="hello"), queue)
+    await executor.execute(
+        make_request_context(task_id="task-3", context_id="ctx-3", text="hello"), queue
+    )
 
     final_updates = [
         event
@@ -250,10 +243,16 @@ async def test_execute_serializes_send_message_per_session() -> None:
 
     await asyncio.gather(
         executor.execute(
-            _context(task_id="task-4", context_id="ctx-4", text="hello", metadata=metadata), queue_1
+            make_request_context(
+                task_id="task-4", context_id="ctx-4", text="hello", metadata=metadata
+            ),
+            queue_1,
         ),
         executor.execute(
-            _context(task_id="task-5", context_id="ctx-5", text="world", metadata=metadata), queue_2
+            make_request_context(
+                task_id="task-5", context_id="ctx-5", text="world", metadata=metadata
+            ),
+            queue_2,
         ),
     )
 
@@ -278,7 +277,9 @@ async def test_streaming_drops_events_without_message_id_and_falls_back_to_snaps
     executor._should_stream = lambda context: True  # type: ignore[method-assign]
     queue = DummyEventQueue()
 
-    await executor.execute(_context(task_id="task-6", context_id="ctx-6", text="hello"), queue)
+    await executor.execute(
+        make_request_context(task_id="task-6", context_id="ctx-6", text="hello"), queue
+    )
 
     updates = _artifact_updates(queue)
     assert len(updates) == 1
@@ -321,7 +322,7 @@ async def test_streaming_treats_embedded_markers_as_plain_text_without_typed_par
     queue = DummyEventQueue()
 
     await executor.execute(
-        _context(task_id="task-embedded", context_id="ctx-embedded", text="go"), queue
+        make_request_context(task_id="task-embedded", context_id="ctx-embedded", text="go"), queue
     )
 
     updates = _artifact_updates(queue)
@@ -389,7 +390,7 @@ async def test_streaming_emits_structured_tool_part_updates() -> None:
     queue = DummyEventQueue()
 
     await executor.execute(
-        _context(task_id="task-tool-bracket", context_id="ctx-tool-bracket", text="go"),
+        make_request_context(task_id="task-tool-bracket", context_id="ctx-tool-bracket", text="go"),
         queue,
     )
 
@@ -417,7 +418,7 @@ async def test_streaming_flushes_partial_marker_on_eof_as_current_block_type() -
     queue = DummyEventQueue()
 
     await executor.execute(
-        _context(task_id="task-eof-flush", context_id="ctx-eof-flush", text="go"),
+        make_request_context(task_id="task-eof-flush", context_id="ctx-eof-flush", text="go"),
         queue,
     )
 
@@ -465,7 +466,7 @@ async def test_streaming_never_resets_single_artifact_after_first_chunk() -> Non
     queue = DummyEventQueue()
 
     await executor.execute(
-        _context(task_id="task-no-reset", context_id="ctx-no-reset", text="go"),
+        make_request_context(task_id="task-no-reset", context_id="ctx-no-reset", text="go"),
         queue,
     )
 
@@ -510,7 +511,7 @@ async def test_streaming_suppresses_reasoning_snapshot_reset_after_delta() -> No
     queue = DummyEventQueue()
 
     await executor.execute(
-        _context(task_id="task-reason-reset", context_id="ctx-reason-reset", text="go"),
+        make_request_context(task_id="task-reason-reset", context_id="ctx-reason-reset", text="go"),
         queue,
     )
 
@@ -545,7 +546,7 @@ async def test_streaming_supports_message_part_delta_events() -> None:
     queue = DummyEventQueue()
 
     await executor.execute(
-        _context(task_id="task-delta", context_id="ctx-delta", text="go"),
+        make_request_context(task_id="task-delta", context_id="ctx-delta", text="go"),
         queue,
     )
 
@@ -581,7 +582,9 @@ async def test_streaming_buffers_delta_until_part_updated_arrives() -> None:
     queue = DummyEventQueue()
 
     await executor.execute(
-        _context(task_id="task-buffered-delta", context_id="ctx-buffered-delta", text="go"),
+        make_request_context(
+            task_id="task-buffered-delta", context_id="ctx-buffered-delta", text="go"
+        ),
         queue,
     )
 
@@ -624,7 +627,7 @@ async def test_streaming_keeps_multiple_message_ids_in_same_request_window() -> 
     queue = DummyEventQueue()
 
     await executor.execute(
-        _context(task_id="task-multi-mid", context_id="ctx-multi-mid", text="go"),
+        make_request_context(task_id="task-multi-mid", context_id="ctx-multi-mid", text="go"),
         queue,
     )
 

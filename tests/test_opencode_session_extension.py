@@ -7,14 +7,10 @@ from opencode_a2a_serve.config import Settings
 from tests.helpers import DummySessionQueryOpencodeClient as DummyOpencodeClient
 from tests.helpers import make_settings
 
-
-def _settings(*, token: str, log_payloads: bool) -> Settings:
-    return make_settings(
-        a2a_bearer_token=token,
-        a2a_log_payloads=log_payloads,
-        opencode_timeout=1.0,
-        a2a_log_level="DEBUG",
-    )
+_BASE_SETTINGS = {
+    "opencode_timeout": 1.0,
+    "a2a_log_level": "DEBUG",
+}
 
 
 @pytest.mark.asyncio
@@ -22,7 +18,9 @@ async def test_session_query_extension_requires_bearer_token(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
     monkeypatch.setattr(app_module, "OpencodeClient", DummyOpencodeClient)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -48,9 +46,13 @@ async def test_session_query_extension_requires_bearer_token(monkeypatch):
 async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
-    dummy = DummyOpencodeClient(_settings(token="t-1", log_payloads=False))
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
     monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -113,7 +115,9 @@ async def test_session_query_extension_items_is_always_array(monkeypatch):
             self._sessions_payload = {"foo": "bar"}  # no items
 
     monkeypatch.setattr(app_module, "OpencodeClient", WeirdPayloadClient)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -143,7 +147,9 @@ async def test_session_query_extension_session_title_is_extracted_or_placeholder
             self._sessions_payload = {"items": [{"id": "s-1", "title": "My Session"}]}
 
     monkeypatch.setattr(app_module, "OpencodeClient", TitlePayloadClient)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -176,7 +182,9 @@ async def test_session_query_extension_message_role_and_id_from_info(monkeypatch
             }
 
     monkeypatch.setattr(app_module, "OpencodeClient", InfoRoleClient)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -209,7 +217,9 @@ async def test_session_query_extension_accepts_top_level_list_payload(monkeypatc
             self._messages_payload = [{"id": "m-1", "text": "SECRET_HISTORY"}]
 
     monkeypatch.setattr(app_module, "OpencodeClient", ListPayloadClient)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -248,7 +258,9 @@ async def test_session_query_extension_accepts_alternative_list_keys(monkeypatch
             self._messages_payload = {"messages": [{"id": "m-1", "text": "SECRET_HISTORY"}]}
 
     monkeypatch.setattr(app_module, "OpencodeClient", AltKeyPayloadClient)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -280,9 +292,13 @@ async def test_session_query_extension_accepts_alternative_list_keys(monkeypatch
 async def test_session_query_extension_rejects_cursor_limit(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
-    dummy = DummyOpencodeClient(_settings(token="t-1", log_payloads=False))
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
     monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -308,9 +324,13 @@ async def test_session_query_extension_rejects_cursor_limit(monkeypatch):
 async def test_session_query_extension_rejects_size_over_max(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
-    dummy = DummyOpencodeClient(_settings(token="t-1", log_payloads=False))
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
     monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -342,7 +362,9 @@ async def test_session_query_extension_maps_404_to_session_not_found(monkeypatch
             raise httpx.HTTPStatusError("Not Found", request=request, response=response)
 
     monkeypatch.setattr(app_module, "OpencodeClient", NotFoundOpencodeClient)
-    app = app_module.create_app(_settings(token="t-1", log_payloads=False))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
@@ -371,7 +393,9 @@ async def test_session_query_extension_does_not_log_response_bodies(monkeypatch,
     monkeypatch.setattr(app_module, "OpencodeClient", DummyOpencodeClient)
     caplog.set_level(logging.DEBUG, logger="opencode_a2a_serve.app")
 
-    app = app_module.create_app(_settings(token="t-1", log_payloads=True))
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=True, **_BASE_SETTINGS)
+    )
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
