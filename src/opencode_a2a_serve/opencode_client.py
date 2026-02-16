@@ -44,6 +44,14 @@ class OpencodeClient:
     async def close(self) -> None:
         await self._client.aclose()
 
+    @staticmethod
+    def _require_boolean_response(*, endpoint: str, payload: Any) -> bool:
+        if isinstance(payload, bool):
+            return payload
+        raise RuntimeError(
+            f"OpenCode {endpoint} response must be boolean; got {type(payload).__name__}"
+        )
+
     @property
     def stream_timeout(self) -> float | None:
         return self._stream_timeout
@@ -225,7 +233,9 @@ class OpencodeClient:
         )
         response.raise_for_status()
         data = response.json()
-        return bool(data) if isinstance(data, bool) else True
+        return self._require_boolean_response(
+            endpoint="/permission/{requestID}/reply", payload=data
+        )
 
     async def question_reply(
         self,
@@ -241,7 +251,7 @@ class OpencodeClient:
         )
         response.raise_for_status()
         data = response.json()
-        return bool(data) if isinstance(data, bool) else True
+        return self._require_boolean_response(endpoint="/question/{requestID}/reply", payload=data)
 
     async def question_reject(
         self,
@@ -255,4 +265,4 @@ class OpencodeClient:
         )
         response.raise_for_status()
         data = response.json()
-        return bool(data) if isinstance(data, bool) else True
+        return self._require_boolean_response(endpoint="/question/{requestID}/reject", payload=data)

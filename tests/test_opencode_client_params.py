@@ -112,3 +112,49 @@ async def test_question_reply_posts_answers(monkeypatch):
     assert seen["json"] == {"answers": [["A"], ["B"]]}
 
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_permission_reply_rejects_non_boolean_payload(monkeypatch):
+    client = OpencodeClient(
+        make_settings(
+            a2a_bearer_token="t-1",
+            opencode_timeout=1.0,
+            a2a_log_level="DEBUG",
+            a2a_log_payloads=False,
+        )
+    )
+
+    async def fake_post(path: str, *, params=None, json=None, **_kwargs):
+        del path, params, json
+        return _DummyResponse({"ok": True})
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+
+    with pytest.raises(RuntimeError, match="response must be boolean"):
+        await client.permission_reply("perm-1", reply="once")
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_question_reject_rejects_non_boolean_payload(monkeypatch):
+    client = OpencodeClient(
+        make_settings(
+            a2a_bearer_token="t-1",
+            opencode_timeout=1.0,
+            a2a_log_level="DEBUG",
+            a2a_log_payloads=False,
+        )
+    )
+
+    async def fake_post(path: str, *, params=None, json=None, **_kwargs):
+        del path, params, json
+        return _DummyResponse({"ok": True})
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+
+    with pytest.raises(RuntimeError, match="response must be boolean"):
+        await client.question_reject("q-1")
+
+    await client.close()

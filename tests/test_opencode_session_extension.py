@@ -165,6 +165,34 @@ async def test_session_query_extension_session_title_is_extracted_or_placeholder
 
 
 @pytest.mark.asyncio
+async def test_session_query_extension_keeps_session_with_empty_title(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    class EmptyTitlePayloadClient(DummyOpencodeClient):
+        def __init__(self, _settings: Settings) -> None:
+            super().__init__(_settings)
+            self._sessions_payload = [{"id": "s-1", "title": "   "}]
+
+    monkeypatch.setattr(app_module, "OpencodeClient", EmptyTitlePayloadClient)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={"jsonrpc": "2.0", "id": 1, "method": "opencode.sessions.list", "params": {}},
+        )
+        payload = resp.json()
+        session = payload["result"]["items"][0]
+        assert session["id"] == "s-1"
+        assert session["metadata"]["opencode"]["title"] == ""
+
+
+@pytest.mark.asyncio
 async def test_session_query_extension_message_role_and_id_from_info(monkeypatch):
     import opencode_a2a_serve.app as app_module
 

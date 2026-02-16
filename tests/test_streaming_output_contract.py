@@ -196,12 +196,12 @@ async def test_streaming_filters_user_echo_and_emits_single_artifact_block_types
     user_text = "who are you"
     client = DummyStreamingClient(
         stream_events_payload=[
-            _event(session_id="ses-1", role="ROLE_USER", part_type="text", delta=user_text),
+            _event(session_id="ses-1", role="user", part_type="text", delta=user_text),
             _event(session_id="ses-1", role="assistant", part_type="reasoning", delta="thinking"),
             _event(
                 session_id="ses-1",
                 role="assistant",
-                part_type="tool_call",
+                part_type="tool",
                 delta='{"tool":"search"}',
             ),
             _event(session_id="ses-1", role="assistant", part_type="text", delta="final answer"),

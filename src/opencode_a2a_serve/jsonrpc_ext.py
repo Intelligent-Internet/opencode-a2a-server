@@ -101,8 +101,6 @@ def _as_a2a_session_task(session: Any) -> dict[str, Any] | None:
     if not session_id:
         return None
     title = _extract_session_title(session)
-    if not title:
-        return None
     task = Task(
         id=session_id,
         context_id=session_id,
