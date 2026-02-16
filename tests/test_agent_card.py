@@ -44,6 +44,12 @@ def test_agent_card_injects_deployment_context_into_extensions() -> None:
     assert context["variant"] == "safe"
     assert context["allow_directory_override"] is False
     assert context["shared_workspace_across_consumers"] is True
+    assert binding.params["metadata_namespace"] == "opencode"
+    assert binding.params["metadata_key"] == "opencode.session_id"
+    assert binding.params["supported_metadata"] == [
+        "opencode.session_id",
+        "opencode.directory",
+    ]
     assert binding.params["directory_override_enabled"] is False
     assert binding.params["shared_workspace_across_consumers"] is True
     assert binding.params["tenant_isolation"] == "none"

@@ -312,7 +312,6 @@ class OpencodeAgentExecutor(AgentExecutor):
         bound_session_id = _extract_opencode_session_id(context)
 
         # Directory validation
-        requested_dir = None
         metadata = context.metadata
         if metadata is not None and not isinstance(metadata, Mapping):
             await self._emit_error(
@@ -323,8 +322,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                 streaming_request=streaming_request,
             )
             return
-        if isinstance(metadata, Mapping):
-            requested_dir = metadata.get("directory")
+        requested_dir = _extract_opencode_directory(context)
 
         try:
             directory = self._resolve_and_validate_directory(requested_dir)
@@ -1550,23 +1548,40 @@ def _build_history(context: RequestContext) -> list[Message]:
     return history
 
 
-def _extract_opencode_session_id(context: RequestContext) -> str | None:
-    # Contract: clients may pass the binding at either request-level metadata
-    # (MessageSendParams.metadata) or message-level metadata (Message.metadata).
-    candidate = None
+def _iter_opencode_metadata_maps(context: RequestContext):
     try:
         meta = context.metadata
-        if isinstance(meta, Mapping):
-            candidate = meta.get("opencode_session_id")
     except Exception:
-        candidate = None
+        meta = None
 
-    if not candidate and context.message is not None:
+    if isinstance(meta, Mapping):
+        opencode_meta = meta.get("opencode")
+        if isinstance(opencode_meta, Mapping):
+            yield opencode_meta
+
+    if context.message is not None:
         msg_meta = getattr(context.message, "metadata", None) or {}
         if isinstance(msg_meta, Mapping):
-            candidate = msg_meta.get("opencode_session_id")
+            opencode_meta = msg_meta.get("opencode")
+            if isinstance(opencode_meta, Mapping):
+                yield opencode_meta
 
-    if isinstance(candidate, str):
-        value = candidate.strip()
-        return value or None
+
+def _extract_opencode_string_metadata(context: RequestContext, field: str) -> str | None:
+    for opencode_meta in _iter_opencode_metadata_maps(context):
+        candidate = opencode_meta.get(field)
+        if isinstance(candidate, str):
+            value = candidate.strip()
+            if value:
+                return value
     return None
+
+
+def _extract_opencode_session_id(context: RequestContext) -> str | None:
+    # Contract: clients pass binding metadata under metadata.opencode.session_id.
+    return _extract_opencode_string_metadata(context, "session_id")
+
+
+def _extract_opencode_directory(context: RequestContext) -> str | None:
+    # Contract: clients pass directory override under metadata.opencode.directory.
+    return _extract_opencode_string_metadata(context, "directory")

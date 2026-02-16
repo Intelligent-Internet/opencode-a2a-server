@@ -53,7 +53,7 @@ Additional notes:
 - Re-subscribe after disconnect: `GET /v1/tasks/{task_id}:subscribe`
   (available while the task is not in a terminal state).
 - Session continuation contract: clients can explicitly bind to an existing
-  OpenCode session via `metadata.opencode_session_id`.
+  OpenCode session via `metadata.opencode.session_id`.
 - OpenCode session query extension (JSON-RPC):
   `opencode.sessions.list` / `opencode.sessions.messages.list`.
 
@@ -116,7 +116,7 @@ Implementation-level protocol contracts and examples are maintained in
 `docs/guide.md`:
 
 - Transport contract and payload shape boundaries
-- Session continuation (`metadata.opencode_session_id`)
+- Session continuation (`metadata.opencode.session_id`)
 - JSON-RPC extension methods:
   `opencode.sessions.list`, `opencode.sessions.messages.list`,
   `opencode.permission.reply`, `opencode.question.reply`,

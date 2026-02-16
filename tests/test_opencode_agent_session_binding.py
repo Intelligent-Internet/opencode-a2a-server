@@ -18,7 +18,7 @@ async def test_agent_prefers_metadata_opencode_session_id() -> None:
         task_id="t-1",
         context_id="c-1",
         text="hello",
-        metadata={"opencode_session_id": "ses-bound"},
+        metadata={"opencode": {"session_id": "ses-bound"}},
     )
     await executor.execute(ctx, q)
 
@@ -41,7 +41,7 @@ async def test_agent_caches_bound_session_id_for_followup_requests() -> None:
         task_id="t-1",
         context_id="c-1",
         text="hello",
-        metadata={"opencode_session_id": "ses-bound"},
+        metadata={"opencode": {"session_id": "ses-bound"}},
     )
     await executor.execute(ctx1, q)
 

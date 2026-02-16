@@ -326,7 +326,7 @@ async def test_execute_serializes_send_message_per_session() -> None:
     executor = OpencodeAgentExecutor(client, streaming_enabled=False)
     queue_1 = DummyEventQueue()
     queue_2 = DummyEventQueue()
-    metadata = {"opencode_session_id": "ses-shared"}
+    metadata = {"opencode": {"session_id": "ses-shared"}}
 
     await asyncio.gather(
         executor.execute(

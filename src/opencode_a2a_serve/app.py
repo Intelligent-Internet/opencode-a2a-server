@@ -190,20 +190,22 @@ def build_agent_card(settings: Settings) -> AgentCard:
                     description=(
                         "Contract to bind A2A messages to an existing OpenCode session "
                         "when continuing a previous chat. Clients should pass "
-                        "metadata.opencode_session_id. The metadata.directory field is also "
+                        "metadata.opencode.session_id. The metadata.opencode.directory field is "
+                        "also "
                         "supported under server-side directory boundary validation."
                     ),
                     params={
-                        "metadata_key": "opencode_session_id",
+                        "metadata_namespace": "opencode",
+                        "metadata_key": "opencode.session_id",
                         "behavior": "prefer_metadata_binding_else_create_session",
-                        "supported_metadata": ["opencode_session_id", "directory"],
+                        "supported_metadata": ["opencode.session_id", "opencode.directory"],
                         "directory_override_enabled": settings.a2a_allow_directory_override,
                         "shared_workspace_across_consumers": True,
                         "tenant_isolation": "none",
                         "deployment_context": deployment_context,
                         "notes": [
                             (
-                                "If metadata.opencode_session_id is provided, the server will "
+                                "If metadata.opencode.session_id is provided, the server will "
                                 "send the message to that OpenCode session_id."
                             ),
                             (

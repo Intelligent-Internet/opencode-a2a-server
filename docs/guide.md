@@ -91,7 +91,7 @@ and JSON-RPC extension details (README stays at overview level).
     via `event_queue`.
   - Failure events include concrete error details with `failed` state.
 - Directory validation and normalization:
-  - Clients can pass `metadata.directory`, but it must stay inside
+  - Clients can pass `metadata.opencode.directory`, but it must stay inside
     `${OPENCODE_DIRECTORY}` (or service runtime root if not configured).
   - All paths are normalized with `realpath` to prevent `..` or symlink
     boundary bypass.
@@ -106,7 +106,7 @@ and JSON-RPC extension details (README stays at overview level).
 
 To continue a historical OpenCode session, include this metadata key in each invoke request:
 
-- `metadata.opencode_session_id`: target OpenCode session ID
+- `metadata.opencode.session_id`: target OpenCode session ID
 
 Server behavior:
 
@@ -127,7 +127,9 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
       "content": [{"text": "Continue the previous session and restate the key conclusion."}]
     },
     "metadata": {
-      "opencode_session_id": "<session_id>"
+      "opencode": {
+        "session_id": "<session_id>"
+      }
     }
   }'
 ```
