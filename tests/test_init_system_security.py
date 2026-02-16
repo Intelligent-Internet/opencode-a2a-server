@@ -1,6 +1,5 @@
-from pathlib import Path
 import re
-
+from pathlib import Path
 
 INIT_SYSTEM_PATH = Path("scripts/init_system.sh")
 INIT_SYSTEM_TEXT = INIT_SYSTEM_PATH.read_text()
@@ -27,8 +26,11 @@ def test_opencode_install_flow_is_pinned_and_verified() -> None:
     assert "bash -" not in install_cmd
     assert "--version" in install_cmd
     assert "curl -fsSL https://opencode.ai/install | bash" not in INIT_SYSTEM_TEXT
-    assert "download_script \"$OPENCODE_INSTALLER_URL\"" in INIT_SYSTEM_TEXT
-    assert "verify_file_checksum \"$opencode_install_script\" \"$OPENCODE_INSTALLER_SHA256\"" in INIT_SYSTEM_TEXT
+    assert 'download_script "$OPENCODE_INSTALLER_URL"' in INIT_SYSTEM_TEXT
+    assert (
+        'verify_file_checksum "$opencode_install_script" "$OPENCODE_INSTALLER_SHA256"'
+        in INIT_SYSTEM_TEXT
+    )
 
 
 def _parse_octal_mode(mode: str) -> int:
