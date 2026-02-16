@@ -442,7 +442,9 @@ async def test_streaming_final_status_state_is_completed() -> None:
     queue = DummyEventQueue()
 
     await executor.execute(
-        make_request_context(task_id="task-final-stream", context_id="ctx-final-stream", text="hello"),
+        make_request_context(
+            task_id="task-final-stream", context_id="ctx-final-stream", text="hello"
+        ),
         queue,
     )
 
@@ -463,7 +465,9 @@ async def test_non_streaming_response_task_state_is_completed() -> None:
     queue = DummyEventQueue()
 
     await executor.execute(
-        make_request_context(task_id="task-final-non-stream", context_id="ctx-final-non-stream", text="hello"),
+        make_request_context(
+            task_id="task-final-non-stream", context_id="ctx-final-non-stream", text="hello"
+        ),
         queue,
     )
 
