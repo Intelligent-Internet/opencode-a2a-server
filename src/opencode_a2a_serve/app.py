@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING
 import uvicorn
 from a2a.server.apps.jsonrpc.jsonrpc_app import DefaultCallContextBuilder
 from a2a.server.apps.rest.rest_adapter import RESTAdapter
+from a2a.server.events import EventConsumer
 from a2a.server.request_handlers.default_request_handler import DefaultRequestHandler
 from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
 from a2a.types import (
@@ -61,6 +63,105 @@ INTERRUPT_CALLBACK_METHODS = {
 SESSION_BINDING_EXTENSION_URI = "urn:opencode-a2a:opencode-session-binding/v1"
 SESSION_QUERY_EXTENSION_URI = "urn:opencode-a2a:opencode-session-query/v1"
 INTERRUPT_CALLBACK_EXTENSION_URI = "urn:opencode-a2a:opencode-interrupt-callback/v1"
+
+
+class OpencodeRequestHandler(DefaultRequestHandler):
+    """Custom request handler to gracefully handle client disconnects and prevent dead loops."""
+
+    async def on_message_send_stream(self, params, context=None):
+        (
+            _task_manager,
+            task_id,
+            queue,
+            result_aggregator,
+            producer_task,
+        ) = await self._setup_message_execution(params, context)
+        consumer = EventConsumer(queue)
+        producer_task.add_done_callback(consumer.agent_task_callback)
+
+        try:
+            async for event in result_aggregator.consume_and_emit(consumer):
+                if hasattr(event, "id") and event.id:
+                    self._validate_task_id_match(task_id, event.id)
+                await self._send_push_notification_if_needed(task_id, result_aggregator)
+                yield event
+        except (asyncio.CancelledError, GeneratorExit):
+            logger.warning("Client disconnected. Cancelling producer task %s", task_id)
+            producer_task.cancel()
+            await queue.close(immediate=True)
+            raise
+        finally:
+            cleanup_task = asyncio.create_task(self._cleanup_producer(producer_task, task_id))
+            cleanup_task.set_name(f"cleanup_producer:{task_id}")
+            self._track_background_task(cleanup_task)
+
+    async def on_message_send(self, params, context=None):
+        (
+            _task_manager,
+            task_id,
+            queue,
+            result_aggregator,
+            producer_task,
+        ) = await self._setup_message_execution(params, context)
+
+        consumer = EventConsumer(queue)
+        producer_task.add_done_callback(consumer.agent_task_callback)
+
+        blocking = True
+        if params.configuration and params.configuration.blocking is False:
+            blocking = False
+
+        interrupted_or_non_blocking = False
+        try:
+
+            async def push_notification_callback() -> None:
+                await self._send_push_notification_if_needed(task_id, result_aggregator)
+
+            (
+                result,
+                interrupted_or_non_blocking,
+            ) = await result_aggregator.consume_and_break_on_interrupt(
+                consumer,
+                blocking=blocking,
+                event_callback=push_notification_callback,
+            )
+        except Exception:
+            logger.exception("Agent execution failed")
+            raise
+        finally:
+            if interrupted_or_non_blocking:
+                cleanup_task = asyncio.create_task(self._cleanup_producer(producer_task, task_id))
+                cleanup_task.set_name(f"cleanup_producer:{task_id}")
+                self._track_background_task(cleanup_task)
+            else:
+                try:
+                    if asyncio.current_task() and asyncio.current_task().cancelled():
+                        logger.warning(
+                            "Client disconnected from message request. Cancelling task %s", task_id
+                        )
+                        producer_task.cancel()
+                        await queue.close(immediate=True)
+
+                    await asyncio.shield(self._cleanup_producer(producer_task, task_id))
+                except asyncio.CancelledError:
+                    pass
+
+        if not result:
+            from a2a.types import InternalError
+            from a2a.utils.errors import ServerError
+
+            raise ServerError(error=InternalError())
+
+        if hasattr(result, "id") and result.id:
+            self._validate_task_id_match(task_id, result.id)
+            if params.configuration:
+                from a2a.utils.task import apply_history_length
+
+                result = apply_history_length(result, params.configuration.history_length)
+
+        await self._send_push_notification_if_needed(task_id, result_aggregator)
+
+        return result
 
 
 class IdentityAwareCallContextBuilder(DefaultCallContextBuilder):
@@ -397,7 +498,7 @@ def create_app(settings: Settings) -> FastAPI:
         session_cache_maxsize=settings.a2a_session_cache_maxsize,
     )
     task_store = InMemoryTaskStore()
-    handler = DefaultRequestHandler(
+    handler = OpencodeRequestHandler(
         agent_executor=executor,
         task_store=task_store,
     )
@@ -429,6 +530,10 @@ def create_app(settings: Settings) -> FastAPI:
     )
     for route, callback in rest_adapter.routes().items():
         app.add_api_route(route[0], callback, methods=[route[1]])
+
+    @app.get("/health")
+    async def health_check():
+        return {"status": "ok"}
 
     def _parse_json_body(body_bytes: bytes) -> dict | None:
         try:
