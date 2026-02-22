@@ -77,7 +77,6 @@ class OpencodeRequestHandler(DefaultRequestHandler):
             producer_task,
         ) = await self._setup_message_execution(params, context)
         consumer = EventConsumer(queue)
-        consumer._timeout = 300.0
         producer_task.add_done_callback(consumer.agent_task_callback)
 
         try:
@@ -106,7 +105,6 @@ class OpencodeRequestHandler(DefaultRequestHandler):
         ) = await self._setup_message_execution(params, context)
 
         consumer = EventConsumer(queue)
-        consumer._timeout = 300.0
         producer_task.add_done_callback(consumer.agent_task_callback)
 
         blocking = True
