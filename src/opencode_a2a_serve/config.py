@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -78,5 +78,6 @@ class Settings(BaseSettings):
 
     @classmethod
     def from_env(cls) -> Settings:
-        # Pydantic BaseSettings automatically loads from environment
-        return cls()
+        # BaseSettings constructor loads values from env and applies validation.
+        settings_cls: type[BaseSettings] = cls
+        return cast(Settings, settings_cls())
