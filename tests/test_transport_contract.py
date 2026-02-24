@@ -214,6 +214,19 @@ def test_create_app_propagates_cancel_abort_timeout(monkeypatch) -> None:
         async def cancel(self, _context, _event_queue) -> None:  # noqa: ANN001
             raise NotImplementedError
 
+        def resolve_directory_for_control(self, requested: str | None) -> str | None:
+            return requested
+
+        async def claim_session_for_control(self, *, identity: str, session_id: str) -> bool:
+            del identity, session_id
+            return False
+
+        async def finalize_session_for_control(self, *, identity: str, session_id: str) -> None:
+            del identity, session_id
+
+        async def release_session_for_control(self, *, identity: str, session_id: str) -> None:
+            del identity, session_id
+
     monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
     monkeypatch.setattr(app_module, "OpencodeAgentExecutor", _CapturingExecutor)
 

@@ -508,10 +508,6 @@ def create_app(settings: Settings) -> FastAPI:
 
     agent_card = build_agent_card(settings)
     context_builder = IdentityAwareCallContextBuilder()
-    directory_resolver = getattr(executor, "resolve_directory_for_control", None)
-    session_claim = getattr(executor, "claim_session_for_control", None)
-    session_claim_finalize = getattr(executor, "finalize_session_for_control", None)
-    session_claim_release = getattr(executor, "release_session_for_control", None)
 
     # Build JSON-RPC app (POST / by default) and attach REST endpoints (HTTP+JSON) to the same app.
     app = OpencodeSessionQueryJSONRPCApplication(
@@ -519,12 +515,10 @@ def create_app(settings: Settings) -> FastAPI:
         http_handler=handler,
         context_builder=context_builder,
         opencode_client=client,
-        directory_resolver=directory_resolver if callable(directory_resolver) else None,
-        session_claim=session_claim if callable(session_claim) else None,
-        session_claim_finalize=(
-            session_claim_finalize if callable(session_claim_finalize) else None
-        ),
-        session_claim_release=session_claim_release if callable(session_claim_release) else None,
+        directory_resolver=executor.resolve_directory_for_control,
+        session_claim=executor.claim_session_for_control,
+        session_claim_finalize=executor.finalize_session_for_control,
+        session_claim_release=executor.release_session_for_control,
         methods={
             **SESSION_QUERY_METHODS,
             **SESSION_CONTROL_METHODS,
