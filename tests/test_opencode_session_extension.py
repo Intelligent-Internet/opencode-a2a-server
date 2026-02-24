@@ -454,6 +454,175 @@ async def test_session_query_extension_does_not_log_response_bodies(monkeypatch,
 
 
 @pytest.mark.asyncio
+async def test_session_prompt_async_extension_success(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 301,
+                "method": "opencode.sessions.prompt_async",
+                "params": {
+                    "session_id": "s-1",
+                    "request": {
+                        "parts": [{"type": "text", "text": "Continue the task"}],
+                        "noReply": True,
+                    },
+                    "metadata": {"opencode": {"directory": "/workspace"}},
+                },
+            },
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload.get("error") is None
+        assert payload["result"] == {"ok": True, "session_id": "s-1"}
+        assert len(dummy.prompt_async_calls) == 1
+        assert dummy.prompt_async_calls[0]["session_id"] == "s-1"
+        assert dummy.prompt_async_calls[0]["directory"] == "/workspace"
+        assert dummy.prompt_async_calls[0]["request"]["parts"][0]["text"] == "Continue the task"
+
+
+@pytest.mark.asyncio
+async def test_session_prompt_async_extension_rejects_invalid_params(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+
+        missing_session_id = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 302,
+                "method": "opencode.sessions.prompt_async",
+                "params": {"request": {"parts": [{"type": "text", "text": "x"}]}},
+            },
+        )
+        payload = missing_session_id.json()
+        assert payload["error"]["code"] == -32602
+        assert payload["error"]["data"]["field"] == "session_id"
+
+        invalid_request = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 303,
+                "method": "opencode.sessions.prompt_async",
+                "params": {"session_id": "s-1", "request": "invalid"},
+            },
+        )
+        payload = invalid_request.json()
+        assert payload["error"]["code"] == -32602
+        assert payload["error"]["data"]["field"] == "request"
+
+        missing_parts = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 304,
+                "method": "opencode.sessions.prompt_async",
+                "params": {"session_id": "s-1", "request": {"agent": "code-reviewer"}},
+            },
+        )
+        payload = missing_parts.json()
+        assert payload["error"]["code"] == -32602
+        assert payload["error"]["data"]["field"] == "request.parts"
+
+
+@pytest.mark.asyncio
+async def test_session_prompt_async_extension_maps_404_to_session_not_found(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    class NotFoundPromptAsyncClient(DummyOpencodeClient):
+        async def session_prompt_async(self, session_id: str, request: dict, *, directory=None):
+            del session_id, request, directory
+            req = httpx.Request("POST", "http://opencode/session/s-404/prompt_async")
+            resp = httpx.Response(404, request=req)
+            raise httpx.HTTPStatusError("Not Found", request=req, response=resp)
+
+    monkeypatch.setattr(app_module, "OpencodeClient", NotFoundPromptAsyncClient)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 305,
+                "method": "opencode.sessions.prompt_async",
+                "params": {
+                    "session_id": "s-404",
+                    "request": {"parts": [{"type": "text", "text": "x"}]},
+                },
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32001
+        assert payload["error"]["data"]["type"] == "SESSION_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_session_prompt_async_extension_notification_returns_204(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "method": "opencode.sessions.prompt_async",
+                "params": {
+                    "session_id": "s-1",
+                    "request": {"parts": [{"type": "text", "text": "hello"}]},
+                },
+            },
+        )
+        assert resp.status_code == 204
+        assert len(dummy.prompt_async_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_interrupt_callback_extension_permission_reply(monkeypatch):
     import opencode_a2a_serve.app as app_module
 

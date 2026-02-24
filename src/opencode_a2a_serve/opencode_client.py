@@ -250,6 +250,20 @@ class OpencodeClient:
         response.raise_for_status()
         return response.json()
 
+    async def session_prompt_async(
+        self,
+        session_id: str,
+        request: dict[str, Any],
+        *,
+        directory: str | None = None,
+    ) -> None:
+        response = await self._client.post(
+            f"/session/{session_id}/prompt_async",
+            params=self._query_params(directory=directory),
+            json=request,
+        )
+        response.raise_for_status()
+
     async def send_message(
         self,
         session_id: str,

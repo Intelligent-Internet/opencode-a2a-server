@@ -52,6 +52,42 @@ async def test_merge_params_does_not_allow_directory_override(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_session_prompt_async_posts_prompt_async_endpoint(monkeypatch):
+    client = OpencodeClient(
+        make_settings(
+            a2a_bearer_token="t-1",
+            opencode_directory="/safe",
+            opencode_timeout=1.0,
+            a2a_log_level="DEBUG",
+            a2a_log_payloads=False,
+        )
+    )
+
+    seen = {}
+
+    async def fake_post(path: str, *, params=None, json=None, **_kwargs):
+        seen["path"] = path
+        seen["params"] = params
+        seen["json"] = json
+        return _DummyResponse()
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+
+    payload = {
+        "parts": [{"type": "text", "text": "continue"}],
+        "agent": "code-reviewer",
+        "noReply": True,
+    }
+    await client.session_prompt_async("ses-1", payload)
+
+    assert seen["path"] == "/session/ses-1/prompt_async"
+    assert seen["params"]["directory"] == "/safe"
+    assert seen["json"] == payload
+
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_permission_reply_raises_on_404_without_legacy_fallback(monkeypatch):
     client = OpencodeClient(
         make_settings(

@@ -157,7 +157,7 @@ def _extract_raw_items(raw_result: Any, *, kind: str) -> list[Any]:
 
 
 class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
-    """Extend A2A JSON-RPC endpoint with OpenCode session query methods.
+    """Extend A2A JSON-RPC endpoint with OpenCode session methods.
 
     These methods are optional (declared via AgentCard.capabilities.extensions) and do
     not require additional private REST endpoints.
@@ -174,6 +174,7 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
         self._opencode_client = opencode_client
         self._method_list_sessions = methods["list_sessions"]
         self._method_get_session_messages = methods["get_session_messages"]
+        self._method_prompt_async = methods["prompt_async"]
         self._method_reply_permission = methods["reply_permission"]
         self._method_reply_question = methods["reply_question"]
         self._method_reject_question = methods["reject_question"]
@@ -203,12 +204,16 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
             self._method_list_sessions,
             self._method_get_session_messages,
         }
+        session_control_methods = {self._method_prompt_async}
         interrupt_callback_methods = {
             self._method_reply_permission,
             self._method_reply_question,
             self._method_reject_question,
         }
-        if base_request.method not in session_query_methods | interrupt_callback_methods:
+        if (
+            base_request.method
+            not in session_query_methods | session_control_methods | interrupt_callback_methods
+        ):
             return await super()._handle_requests(request)
 
         params = base_request.params or {}
@@ -220,6 +225,8 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
 
         if base_request.method in session_query_methods:
             return await self._handle_session_query_request(base_request, params)
+        if base_request.method in session_control_methods:
+            return await self._handle_session_control_request(base_request, params)
         return await self._handle_interrupt_callback_request(base_request, params, request=request)
 
     async def _handle_session_query_request(
@@ -400,6 +407,176 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
         return self._jsonrpc_success_response(
             base_request.id,
             result,
+        )
+
+    async def _handle_session_control_request(
+        self,
+        base_request: JSONRPCRequest,
+        params: dict[str, Any],
+    ) -> Response:
+        allowed_fields = {"session_id", "request", "metadata"}
+        unknown_fields = sorted(set(params) - allowed_fields)
+        if unknown_fields:
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message=f"Unsupported fields: {', '.join(unknown_fields)}",
+                        data={"type": "INVALID_FIELD", "fields": unknown_fields},
+                    )
+                ),
+            )
+
+        session_id = params.get("session_id")
+        if not isinstance(session_id, str) or not session_id.strip():
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="Missing required params.session_id",
+                        data={"type": "MISSING_FIELD", "field": "session_id"},
+                    )
+                ),
+            )
+        session_id = session_id.strip()
+
+        raw_request = params.get("request")
+        if raw_request is None:
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="Missing required params.request",
+                        data={"type": "MISSING_FIELD", "field": "request"},
+                    )
+                ),
+            )
+        if not isinstance(raw_request, dict):
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="params.request must be an object",
+                        data={"type": "INVALID_FIELD", "field": "request"},
+                    )
+                ),
+            )
+
+        parts = raw_request.get("parts")
+        if not isinstance(parts, list):
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="params.request.parts must be an array",
+                        data={"type": "INVALID_FIELD", "field": "request.parts"},
+                    )
+                ),
+            )
+
+        metadata = params.get("metadata")
+        if metadata is not None and not isinstance(metadata, dict):
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="metadata must be an object",
+                        data={"type": "INVALID_FIELD", "field": "metadata"},
+                    )
+                ),
+            )
+        opencode_metadata: dict[str, Any] | None = None
+        if isinstance(metadata, dict):
+            unknown_metadata_fields = sorted(set(metadata) - {"opencode"})
+            if unknown_metadata_fields:
+                prefixed_fields = [f"metadata.{field}" for field in unknown_metadata_fields]
+                return self._generate_error_response(
+                    base_request.id,
+                    A2AError(
+                        root=InvalidParamsError(
+                            message=f"Unsupported metadata fields: {', '.join(prefixed_fields)}",
+                            data={"type": "INVALID_FIELD", "fields": prefixed_fields},
+                        )
+                    ),
+                )
+            raw_opencode_metadata = metadata.get("opencode")
+            if raw_opencode_metadata is not None and not isinstance(raw_opencode_metadata, dict):
+                return self._generate_error_response(
+                    base_request.id,
+                    A2AError(
+                        root=InvalidParamsError(
+                            message="metadata.opencode must be an object",
+                            data={"type": "INVALID_FIELD", "field": "metadata.opencode"},
+                        )
+                    ),
+                )
+            if isinstance(raw_opencode_metadata, dict):
+                opencode_metadata = raw_opencode_metadata
+
+        directory = None
+        if opencode_metadata is not None:
+            directory = opencode_metadata.get("directory")
+        if directory is not None and not isinstance(directory, str):
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="metadata.opencode.directory must be a string",
+                        data={"type": "INVALID_FIELD", "field": "metadata.opencode.directory"},
+                    )
+                ),
+            )
+
+        try:
+            await self._opencode_client.session_prompt_async(
+                session_id,
+                request=dict(raw_request),
+                directory=directory,
+            )
+        except httpx.HTTPStatusError as exc:
+            upstream_status = exc.response.status_code
+            if upstream_status == 404:
+                return self._generate_error_response(
+                    base_request.id,
+                    JSONRPCError(
+                        code=ERR_SESSION_NOT_FOUND,
+                        message="Session not found",
+                        data={"type": "SESSION_NOT_FOUND", "session_id": session_id},
+                    ),
+                )
+            return self._generate_error_response(
+                base_request.id,
+                JSONRPCError(
+                    code=ERR_UPSTREAM_HTTP_ERROR,
+                    message="Upstream OpenCode error",
+                    data={
+                        "type": "UPSTREAM_HTTP_ERROR",
+                        "upstream_status": upstream_status,
+                        "session_id": session_id,
+                    },
+                ),
+            )
+        except httpx.HTTPError:
+            return self._generate_error_response(
+                base_request.id,
+                JSONRPCError(
+                    code=ERR_UPSTREAM_UNREACHABLE,
+                    message="Upstream OpenCode unreachable",
+                    data={"type": "UPSTREAM_UNREACHABLE", "session_id": session_id},
+                ),
+            )
+        except Exception as exc:
+            logger.exception("OpenCode session control JSON-RPC method failed")
+            return self._generate_error_response(
+                base_request.id,
+                A2AError(root=InternalError(message=str(exc))),
+            )
+
+        if base_request.id is None:
+            return Response(status_code=204)
+        return self._jsonrpc_success_response(
+            base_request.id,
+            {"ok": True, "session_id": session_id},
         )
 
     async def _handle_interrupt_callback_request(

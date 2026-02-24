@@ -62,6 +62,7 @@ if TYPE_CHECKING:
 SESSION_QUERY_METHODS = {
     "list_sessions": "opencode.sessions.list",
     "get_session_messages": "opencode.sessions.messages.list",
+    "prompt_async": "opencode.sessions.prompt_async",
 }
 INTERRUPT_CALLBACK_METHODS = {
     "reply_permission": "opencode.permission.reply",
@@ -383,8 +384,8 @@ def build_agent_card(settings: Settings) -> AgentCard:
                     uri=SESSION_QUERY_EXTENSION_URI,
                     required=False,
                     description=(
-                        "Support OpenCode session list/history queries via custom JSON-RPC methods "
-                        "on the agent's A2A JSON-RPC interface."
+                        "Support OpenCode session list/history queries and async prompt injection "
+                        "via custom JSON-RPC methods on the agent's A2A JSON-RPC interface."
                     ),
                     params={
                         "methods": SESSION_QUERY_METHODS,
@@ -483,13 +484,15 @@ def build_agent_card(settings: Settings) -> AgentCard:
                 id="opencode.sessions.query",
                 name="OpenCode Sessions Query",
                 description=(
-                    "Query OpenCode sessions and message histories via JSON-RPC extension "
-                    "methods opencode.sessions.list and opencode.sessions.messages.list."
+                    "Query OpenCode sessions/histories and submit async prompts via JSON-RPC "
+                    "extension methods opencode.sessions.list, "
+                    "opencode.sessions.messages.list, and opencode.sessions.prompt_async."
                 ),
                 tags=["opencode", "sessions", "history"],
                 examples=[
                     "List OpenCode sessions (method opencode.sessions.list).",
                     "List messages for a session (method opencode.sessions.messages.list).",
+                    "Send async prompt to a session (method opencode.sessions.prompt_async).",
                 ],
             ),
             AgentSkill(
