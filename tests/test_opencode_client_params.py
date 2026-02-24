@@ -6,8 +6,9 @@ from tests.helpers import make_settings
 
 
 class _DummyResponse:
-    def __init__(self, payload=None) -> None:
+    def __init__(self, payload=None, *, status_code: int = 200) -> None:
         self._payload = {"ok": True} if payload is None else payload
+        self.status_code = status_code
 
     def raise_for_status(self) -> None:
         return None
@@ -69,7 +70,7 @@ async def test_session_prompt_async_posts_prompt_async_endpoint(monkeypatch):
         seen["path"] = path
         seen["params"] = params
         seen["json"] = json
-        return _DummyResponse()
+        return _DummyResponse(status_code=204)
 
     monkeypatch.setattr(client._client, "post", fake_post)
 
@@ -83,6 +84,29 @@ async def test_session_prompt_async_posts_prompt_async_endpoint(monkeypatch):
     assert seen["path"] == "/session/ses-1/prompt_async"
     assert seen["params"]["directory"] == "/safe"
     assert seen["json"] == payload
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_session_prompt_async_rejects_non_204_response(monkeypatch):
+    client = OpencodeClient(
+        make_settings(
+            a2a_bearer_token="t-1",
+            opencode_timeout=1.0,
+            a2a_log_level="DEBUG",
+            a2a_log_payloads=False,
+        )
+    )
+
+    async def fake_post(path: str, *, params=None, json=None, **_kwargs):
+        del path, params, json
+        return _DummyResponse(status_code=200)
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+
+    with pytest.raises(RuntimeError, match="must return 204"):
+        await client.session_prompt_async("ses-1", {"parts": [{"type": "text", "text": "x"}]})
 
     await client.close()
 

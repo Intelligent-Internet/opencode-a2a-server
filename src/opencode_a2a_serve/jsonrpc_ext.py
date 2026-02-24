@@ -565,6 +565,19 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                     data={"type": "UPSTREAM_UNREACHABLE", "session_id": session_id},
                 ),
             )
+        except RuntimeError as exc:
+            return self._generate_error_response(
+                base_request.id,
+                JSONRPCError(
+                    code=ERR_UPSTREAM_PAYLOAD_ERROR,
+                    message="Upstream OpenCode payload mismatch",
+                    data={
+                        "type": "UPSTREAM_PAYLOAD_ERROR",
+                        "detail": str(exc),
+                        "session_id": session_id,
+                    },
+                ),
+            )
         except Exception as exc:
             logger.exception("OpenCode session control JSON-RPC method failed")
             return self._generate_error_response(

@@ -263,6 +263,11 @@ class OpencodeClient:
             json=request,
         )
         response.raise_for_status()
+        if response.status_code != 204:
+            raise RuntimeError(
+                "OpenCode /session/{sessionID}/prompt_async must return 204; "
+                f"got {response.status_code}"
+            )
 
     async def send_message(
         self,

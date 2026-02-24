@@ -592,6 +592,43 @@ async def test_session_prompt_async_extension_maps_404_to_session_not_found(monk
 
 
 @pytest.mark.asyncio
+async def test_session_prompt_async_extension_maps_non_204_to_payload_error(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    class InvalidPromptAsyncStatusClient(DummyOpencodeClient):
+        async def session_prompt_async(self, session_id: str, request: dict, *, directory=None):
+            del session_id, request, directory
+            raise RuntimeError(
+                "OpenCode /session/{sessionID}/prompt_async must return 204; got 200"
+            )
+
+    monkeypatch.setattr(app_module, "OpencodeClient", InvalidPromptAsyncStatusClient)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 306,
+                "method": "opencode.sessions.prompt_async",
+                "params": {
+                    "session_id": "s-1",
+                    "request": {"parts": [{"type": "text", "text": "x"}]},
+                },
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32005
+        assert payload["error"]["data"]["type"] == "UPSTREAM_PAYLOAD_ERROR"
+
+
+@pytest.mark.asyncio
 async def test_session_prompt_async_extension_notification_returns_204(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
