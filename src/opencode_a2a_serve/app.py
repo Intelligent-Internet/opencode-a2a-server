@@ -45,6 +45,7 @@ from .agent import OpencodeAgentExecutor
 from .config import Settings
 from .extension_contracts import (
     INTERRUPT_CALLBACK_METHODS,
+    SESSION_CONTROL_METHODS,
     SESSION_QUERY_METHODS,
     build_interrupt_callback_extension_params,
     build_session_query_extension_params,
@@ -511,11 +512,17 @@ def create_app(settings: Settings) -> FastAPI:
         http_handler=handler,
         context_builder=context_builder,
         opencode_client=client,
+        directory_resolver=executor.resolve_directory_for_control,
+        session_claim=executor.claim_session_for_control,
+        session_claim_finalize=executor.finalize_session_for_control,
+        session_claim_release=executor.release_session_for_control,
         methods={
             **SESSION_QUERY_METHODS,
+            **SESSION_CONTROL_METHODS,
             **INTERRUPT_CALLBACK_METHODS,
         },
     ).build(title=settings.a2a_title, version=settings.a2a_version, lifespan=lifespan)
+    app.state.opencode_agent_executor = executor
 
     rest_adapter = RESTAdapter(
         agent_card=agent_card,

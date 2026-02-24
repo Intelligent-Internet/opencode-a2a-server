@@ -90,9 +90,14 @@ SESSION_QUERY_METHOD_CONTRACTS: dict[str, SessionQueryMethodContract] = {
 SESSION_QUERY_METHODS: dict[str, str] = {
     key: contract.method for key, contract in SESSION_QUERY_METHOD_CONTRACTS.items()
 }
+SESSION_CONTROL_METHOD_KEYS: tuple[str, ...] = ("prompt_async",)
+SESSION_CONTROL_METHODS: dict[str, str] = {
+    key: SESSION_QUERY_METHODS[key] for key in SESSION_CONTROL_METHOD_KEYS
+}
 
 SESSION_QUERY_ERROR_BUSINESS_CODES: dict[str, int] = {
     "SESSION_NOT_FOUND": -32001,
+    "SESSION_FORBIDDEN": -32006,
     "UPSTREAM_UNREACHABLE": -32002,
     "UPSTREAM_HTTP_ERROR": -32003,
     "UPSTREAM_PAYLOAD_ERROR": -32005,
@@ -215,6 +220,7 @@ def build_session_query_extension_params(
 
     return {
         "methods": dict(SESSION_QUERY_METHODS),
+        "control_methods": dict(SESSION_CONTROL_METHODS),
         "shared_workspace_across_consumers": True,
         "tenant_isolation": "none",
         "deployment_context": deployment_context,
