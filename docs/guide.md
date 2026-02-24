@@ -43,6 +43,8 @@ and JSON-RPC extension details (README stays at overview level).
 - `OTEL_INSTRUMENTATION_A2A_SDK_ENABLED`: controls A2A SDK tracing instrumentation, default `false` in deploy/start scripts
 - `A2A_LOG_PAYLOADS`: log A2A/OpenCode payload bodies, default `false`
 - `A2A_LOG_BODY_LIMIT`: payload log body size limit, default `0` (no truncation)
+- `A2A_CANCEL_ABORT_TIMEOUT_SECONDS`: best-effort upstream
+  `session.abort` timeout in seconds for `tasks/cancel`, default `2.0`
 - `A2A_DOCUMENTATION_URL`: optional URL exposed via Agent Card
   `documentationUrl`
 - `A2A_OAUTH_AUTHORIZATION_URL`: OAuth2 authorization URL (declarative only)
@@ -278,6 +280,19 @@ curl -sS http://127.0.0.1:8000/ \
 ## Streaming Re-Subscription (`subscribe`)
 
 If an SSE connection drops, use `GET /v1/tasks/{task_id}:subscribe` to re-subscribe while the task is still non-terminal.
+
+## Cancellation Semantics (`tasks/cancel`)
+
+- The service first marks the A2A task as `canceled` and keeps cancel requests responsive.
+- For running tasks, the service attempts upstream OpenCode `POST /session/{sessionID}/abort` to stop generation.
+- Upstream interruption is best-effort: if upstream returns 404, network errors, or other HTTP errors, A2A cancellation still completes with `TaskState.canceled`.
+- The cancel path emits metric log records (`logger=opencode_a2a_serve.agent`):
+  - `a2a_cancel_requests_total`
+  - `a2a_cancel_abort_attempt_total`
+  - `a2a_cancel_abort_success_total`
+  - `a2a_cancel_abort_timeout_total`
+  - `a2a_cancel_abort_error_total`
+  - `a2a_cancel_duration_ms` (with `abort_outcome` label)
 
 ## Development Setup
 

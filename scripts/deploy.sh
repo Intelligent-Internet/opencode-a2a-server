@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy an isolated OpenCode + A2A instance (systemd services).
-# Usage: ./deploy.sh project=<name> [data_root=<path>] [a2a_port=<port>] [a2a_host=<host>] [a2a_public_url=<url>] [a2a_streaming=<bool>] [a2a_log_level=<level>] [a2a_otel_instrumentation_enabled=<bool>] [a2a_log_payloads=<bool>] [a2a_log_body_limit=<int>] [opencode_provider_id=<id>] [opencode_model_id=<id>] [opencode_lsp=<bool>] [repo_url=<url>] [repo_branch=<branch>] [opencode_timeout=<seconds>] [opencode_timeout_stream=<seconds>] [git_identity_name=<name>] [git_identity_email=<email>] [update_a2a=true] [force_restart=true]
+# Usage: ./deploy.sh project=<name> [data_root=<path>] [a2a_port=<port>] [a2a_host=<host>] [a2a_public_url=<url>] [a2a_streaming=<bool>] [a2a_log_level=<level>] [a2a_otel_instrumentation_enabled=<bool>] [a2a_log_payloads=<bool>] [a2a_log_body_limit=<int>] [a2a_cancel_abort_timeout_seconds=<seconds>] [opencode_provider_id=<id>] [opencode_model_id=<id>] [opencode_lsp=<bool>] [repo_url=<url>] [repo_branch=<branch>] [opencode_timeout=<seconds>] [opencode_timeout_stream=<seconds>] [git_identity_name=<name>] [git_identity_email=<email>] [update_a2a=true] [force_restart=true]
 # Required env: GH_TOKEN, A2A_BEARER_TOKEN
 # Optional provider secret env: see scripts/deploy/provider_secret_env_keys.sh
 # Requires: sudo access to write systemd units and create users/directories.
@@ -27,6 +27,7 @@ A2A_LOG_LEVEL_INPUT=""
 A2A_OTEL_INSTRUMENTATION_ENABLED_INPUT=""
 A2A_LOG_PAYLOADS_INPUT=""
 A2A_LOG_BODY_LIMIT_INPUT=""
+A2A_CANCEL_ABORT_TIMEOUT_SECONDS_INPUT=""
 DATA_ROOT_INPUT=""
 OPENCODE_PROVIDER_ID_INPUT=""
 OPENCODE_MODEL_ID_INPUT=""
@@ -88,6 +89,9 @@ for arg in "$@"; do
     a2a_log_body_limit)
       A2A_LOG_BODY_LIMIT_INPUT="$value"
       ;;
+    a2a_cancel_abort_timeout_seconds)
+      A2A_CANCEL_ABORT_TIMEOUT_SECONDS_INPUT="$value"
+      ;;
     opencode_provider_id)
       OPENCODE_PROVIDER_ID_INPUT="$value"
       ;;
@@ -138,7 +142,7 @@ Usage:
   GH_TOKEN=<token> A2A_BEARER_TOKEN=<token> [<PROVIDER_SECRET_ENV>=<key>] \
   ./scripts/deploy.sh project=<name> [data_root=<path>] [a2a_port=<port>] [a2a_host=<host>] [a2a_public_url=<url>] \
   [a2a_streaming=<bool>] [a2a_log_level=<level>] [a2a_otel_instrumentation_enabled=<bool>] \
-  [a2a_log_payloads=<bool>] [a2a_log_body_limit=<int>] \
+  [a2a_log_payloads=<bool>] [a2a_log_body_limit=<int>] [a2a_cancel_abort_timeout_seconds=<seconds>] \
   [opencode_provider_id=<id>] [opencode_model_id=<id>] [opencode_lsp=<bool>] [repo_url=<url>] [repo_branch=<branch>] \
   [opencode_timeout=<seconds>] [opencode_timeout_stream=<seconds>] [git_identity_name=<name>] \
   [git_identity_email=<email>] [update_a2a=true] [force_restart=true]
@@ -208,11 +212,13 @@ export A2A_STREAMING="${A2A_STREAMING:-true}"
 export A2A_OTEL_INSTRUMENTATION_ENABLED="${A2A_OTEL_INSTRUMENTATION_ENABLED:-false}"
 export A2A_LOG_PAYLOADS="${A2A_LOG_PAYLOADS:-false}"
 export A2A_LOG_BODY_LIMIT="${A2A_LOG_BODY_LIMIT:-0}"
+export A2A_CANCEL_ABORT_TIMEOUT_SECONDS="${A2A_CANCEL_ABORT_TIMEOUT_SECONDS:-2.0}"
 export_if_present "A2A_LOG_LEVEL" "$A2A_LOG_LEVEL_INPUT"
 export_if_present "A2A_STREAMING" "$A2A_STREAMING_INPUT"
 export_if_present "A2A_OTEL_INSTRUMENTATION_ENABLED" "$A2A_OTEL_INSTRUMENTATION_ENABLED_INPUT"
 export_if_present "A2A_LOG_PAYLOADS" "$A2A_LOG_PAYLOADS_INPUT"
 export_if_present "A2A_LOG_BODY_LIMIT" "$A2A_LOG_BODY_LIMIT_INPUT"
+export_if_present "A2A_CANCEL_ABORT_TIMEOUT_SECONDS" "$A2A_CANCEL_ABORT_TIMEOUT_SECONDS_INPUT"
 
 is_truthy() {
   case "${1,,}" in

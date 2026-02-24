@@ -326,11 +326,13 @@ class OpencodeAgentExecutor(AgentExecutor):
         client: OpencodeClient,
         *,
         streaming_enabled: bool,
+        cancel_abort_timeout_seconds: float = 2.0,
         session_cache_ttl_seconds: int = 3600,
         session_cache_maxsize: int = 10_000,
     ) -> None:
         self._client = client
         self._streaming_enabled = streaming_enabled
+        self._cancel_abort_timeout_seconds = max(0.0, float(cancel_abort_timeout_seconds))
         self._sessions = _TTLCache(
             ttl_seconds=session_cache_ttl_seconds,
             maxsize=session_cache_maxsize,
@@ -347,6 +349,23 @@ class OpencodeAgentExecutor(AgentExecutor):
         self._running_requests: dict[tuple[str, str], asyncio.Task[Any]] = {}
         self._running_stop_events: dict[tuple[str, str], asyncio.Event] = {}
         self._running_identities: dict[tuple[str, str], str] = {}
+        self._running_session_ids: dict[tuple[str, str], str] = {}
+        self._running_directories: dict[tuple[str, str], str] = {}
+
+    @staticmethod
+    def _emit_metric(
+        name: str,
+        value: float = 1.0,
+        **labels: str | int | float | bool,
+    ) -> None:
+        if labels:
+            labels_text = ",".join(
+                f"{key}={str(label).lower() if isinstance(label, bool) else label}"
+                for key, label in sorted(labels.items())
+            )
+            logger.info("metric=%s value=%s labels=%s", name, value, labels_text)
+            return
+        logger.info("metric=%s value=%s", name, value)
 
     def _resolve_and_validate_directory(self, requested: str | None) -> str | None:
         """Normalizes and validates the directory parameter against workspace boundaries.
@@ -491,6 +510,9 @@ class OpencodeAgentExecutor(AgentExecutor):
             )
             session_lock = await self._get_session_lock(session_id)
             await session_lock.acquire()
+            async with self._lock:
+                self._running_session_ids[execution_key] = session_id
+                self._running_directories[execution_key] = directory
 
             if streaming_request:
                 stream_task = asyncio.create_task(
@@ -674,12 +696,18 @@ class OpencodeAgentExecutor(AgentExecutor):
                 self._running_requests.pop(execution_key, None)
                 self._running_stop_events.pop(execution_key, None)
                 self._running_identities.pop(execution_key, None)
+                self._running_session_ids.pop(execution_key, None)
+                self._running_directories.pop(execution_key, None)
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id
         context_id = context.context_id
+        started_at = time.monotonic()
+        abort_outcome = "not_attempted"
+        self._emit_metric("a2a_cancel_requests_total")
         try:
             if not task_id or not context_id:
+                abort_outcome = "invalid_request_context"
                 await self._emit_error(
                     event_queue,
                     task_id=task_id or "unknown",
@@ -706,21 +734,69 @@ class OpencodeAgentExecutor(AgentExecutor):
                 running_identity = self._running_identities.get(execution_key, identity)
                 running_task = self._running_requests.get(execution_key)
                 stop_event = self._running_stop_events.get(execution_key)
+                running_session_id = self._running_session_ids.get(execution_key)
+                running_directory = self._running_directories.get(execution_key)
                 self._sessions.pop((running_identity, context_id))
                 inflight = self._inflight_session_creates.pop((running_identity, context_id), None)
             if stop_event:
                 stop_event.set()
-            if (
+            should_cancel_running_task = (
                 running_task
                 and running_task is not asyncio.current_task()
                 and not running_task.done()
-            ):
-                running_task.cancel()
+            )
+            if running_session_id and should_cancel_running_task:
+                self._emit_metric("a2a_cancel_abort_attempt_total")
+                try:
+                    await asyncio.wait_for(
+                        self._client.abort_session(
+                            running_session_id,
+                            directory=running_directory,
+                        ),
+                        timeout=self._cancel_abort_timeout_seconds,
+                    )
+                    abort_outcome = "success"
+                    self._emit_metric("a2a_cancel_abort_success_total")
+                except TimeoutError:
+                    abort_outcome = "timeout"
+                    self._emit_metric("a2a_cancel_abort_timeout_total")
+                    logger.warning(
+                        (
+                            "Best-effort session abort timed out task_id=%s "
+                            "context_id=%s session_id=%s timeout=%.2fs"
+                        ),
+                        task_id,
+                        context_id,
+                        running_session_id,
+                        self._cancel_abort_timeout_seconds,
+                    )
+                except (httpx.HTTPError, RuntimeError) as exc:
+                    abort_outcome = "error"
+                    self._emit_metric("a2a_cancel_abort_error_total")
+                    logger.warning(
+                        (
+                            "Best-effort session abort failed task_id=%s "
+                            "context_id=%s session_id=%s: %s"
+                        ),
+                        task_id,
+                        context_id,
+                        running_session_id,
+                        exc,
+                    )
+            elif should_cancel_running_task:
+                abort_outcome = "no_session_binding"
+            else:
+                abort_outcome = "no_running_task"
+            if should_cancel_running_task:
+                if running_task is not None:
+                    running_task.cancel()
             if inflight:
                 inflight.cancel()
                 with suppress(asyncio.CancelledError):
                     await inflight
         except Exception as exc:
+            abort_outcome = "cancel_error"
+            self._emit_metric("a2a_cancel_errors_total")
             logger.exception("Cancel failed")
             if task_id and context_id:
                 with suppress(Exception):
@@ -732,6 +808,12 @@ class OpencodeAgentExecutor(AgentExecutor):
                         state=TaskState.failed,
                         streaming_request=False,
                     )
+        finally:
+            self._emit_metric(
+                "a2a_cancel_duration_ms",
+                (time.monotonic() - started_at) * 1000.0,
+                abort_outcome=abort_outcome,
+            )
 
     async def _get_or_create_session(
         self,
