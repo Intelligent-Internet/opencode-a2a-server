@@ -39,4 +39,4 @@ The script does not accept runtime arguments. Adjust defaults by editing constan
 
 ## Next Step
 
-After bootstrap, deploy a project instance with [`about_deploy.md`](./about_deploy.md).
+After bootstrap, deploy a project instance with [`deploy_readme.md`](./deploy_readme.md).

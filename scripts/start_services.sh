@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Docs: scripts/about_start_services.md
+# Docs: scripts/start_services_readme.md
 # Start local foreground OpenCode + A2A processes.
 set -euo pipefail
 

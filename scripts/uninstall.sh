@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Docs: scripts/about_uninstall.md
+# Docs: scripts/uninstall_readme.md
 # Preview-first uninstall for one deployed project instance.
 set -euo pipefail
 

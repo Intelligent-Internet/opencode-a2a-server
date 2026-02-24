@@ -7,25 +7,22 @@ Executable scripts live in this directory. This file is the entry index for scri
 - Product/API behavior (transport, protocol contracts, extension semantics):
   - [`../docs/guide.md`](../docs/guide.md)
 - Script operational details (how to run and operate each script):
-  - kept in this `scripts/` directory as `about_*.md`
+  - kept in this `scripts/` directory as `*_readme.md`
 
 ## Script Docs Index
 
-- [`about_init_system.md`](./about_init_system.md): host bootstrap and shared runtime preparation (`init_system.sh`)
-- [`about_deploy.md`](./about_deploy.md): multi-instance systemd deployment (`deploy.sh`)
-- [`about_start_services.md`](./about_start_services.md): local foreground runner (`start_services.sh`)
-- [`about_uninstall.md`](./about_uninstall.md): preview-first instance removal (`uninstall.sh`)
+- [`init_system_readme.md`](./init_system_readme.md): host bootstrap and shared runtime preparation (script: [`init_system.sh`](./init_system.sh))
+- [`deploy_readme.md`](./deploy_readme.md): multi-instance systemd deployment (script: [`deploy.sh`](./deploy.sh))
+- [`start_services_readme.md`](./start_services_readme.md): local foreground runner (script: [`start_services.sh`](./start_services.sh))
+- [`uninstall_readme.md`](./uninstall_readme.md): preview-first instance removal (script: [`uninstall.sh`](./uninstall.sh))
 
-## Script Quick Links
+## Other Scripts
 
-- [`init_system.sh`](./init_system.sh)
-- [`deploy.sh`](./deploy.sh)
-- [`start_services.sh`](./start_services.sh)
-- [`uninstall.sh`](./uninstall.sh)
-- [`doctor.sh`](./doctor.sh)
-- [`dependency_health.sh`](./dependency_health.sh)
+- [`doctor.sh`](./doctor.sh): local environment consistency checks
+- [`dependency_health.sh`](./dependency_health.sh): dependency health checks
+- [`lint.sh`](./lint.sh): lint helper
 
 ## Notes
 
 - `deploy/` contains helper scripts orchestrated by `deploy.sh`.
-- Keep script behavior details in `scripts/about_*.md` to avoid drift.
+- Keep script behavior details in `scripts/*_readme.md` to avoid drift.

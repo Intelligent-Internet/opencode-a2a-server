@@ -35,5 +35,5 @@ Optional:
 
 ## Related Docs
 
-- deployment flow: [`about_deploy.md`](./about_deploy.md)
-- local run flow: [`about_start_services.md`](./about_start_services.md)
+- deployment flow: [`deploy_readme.md`](./deploy_readme.md)
+- local run flow: [`start_services_readme.md`](./start_services_readme.md)

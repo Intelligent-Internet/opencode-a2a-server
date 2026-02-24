@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Docs: scripts/about_deploy.md
+# Docs: scripts/deploy_readme.md
 # Deploy one isolated OpenCode + A2A systemd instance.
 set -euo pipefail
 

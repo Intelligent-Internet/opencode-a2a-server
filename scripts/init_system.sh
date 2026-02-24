@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Docs: scripts/about_init_system.md
+# Docs: scripts/init_system_readme.md
 # Initialize host prerequisites for OpenCode + A2A (idempotent).
 set -euo pipefail
 

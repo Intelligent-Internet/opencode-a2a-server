@@ -4,7 +4,7 @@
 
 ## Vision
 
-Provide a practical adapter layer that lets teams expose OpenCode through standard A2A interfaces (REST + JSON-RPC) while keeping operations, auth, and session behavior explicit and auditable.
+Provide a practical adapter layer that lets individuals and small teams expose OpenCode through standard A2A interfaces (REST + JSON-RPC) while keeping operations, auth, and session behavior explicit and auditable.
 
 ## Core Value
 
@@ -21,7 +21,7 @@ Provide a practical adapter layer that lets teams expose OpenCode through standa
 - Session continuation via `metadata.opencode.session_id`.
 - Session query/control extension methods (`opencode.sessions.*`) and interrupt callback methods.
 
-## Quick Start
+## Quick Start & Development
 
 1. Start OpenCode:
 
@@ -43,30 +43,32 @@ A2A_BEARER_TOKEN=dev-token uv run opencode-a2a-serve
 
 Default address: `http://127.0.0.1:8000`
 
-## Documentation Map
-
-- Product/protocol behavior (single source):
-  - [`docs/guide.md`](docs/guide.md)
-- Script entry and operations:
-  - [`scripts/README.md`](scripts/README.md)
-  - [`scripts/about_deploy.md`](scripts/about_deploy.md)
-  - [`scripts/about_init_system.md`](scripts/about_init_system.md)
-  - [`scripts/about_start_services.md`](scripts/about_start_services.md)
-  - [`scripts/about_uninstall.md`](scripts/about_uninstall.md)
-
-## Security Boundary
-
-- `A2A_BEARER_TOKEN` is required for startup.
-- LLM provider keys are consumed by the OpenCode process. This model is best suited for trusted/internal environments unless stronger credential isolation is introduced.
-- Within one service instance, consumers share the same underlying OpenCode workspace/environment (not tenant-isolated by default).
-
-## Development & Validation
+Development & validation baseline:
 
 ```bash
 uv run pre-commit run --all-files
 uv run mypy src/opencode_a2a_serve
 uv run pytest
 ```
+
+For deployment and operations scripts, see [`scripts/README.md`](scripts/README.md).
+
+## Documentation Map
+
+- Product/protocol behavior:
+  - [`docs/guide.md`](docs/guide.md)
+- Script entry and operations:
+  - [`scripts/README.md`](scripts/README.md)
+  - [`scripts/deploy_readme.md`](scripts/deploy_readme.md)
+  - [`scripts/init_system_readme.md`](scripts/init_system_readme.md)
+  - [`scripts/start_services_readme.md`](scripts/start_services_readme.md)
+  - [`scripts/uninstall_readme.md`](scripts/uninstall_readme.md)
+
+## Security Boundary
+
+- `A2A_BEARER_TOKEN` is required for startup.
+- LLM provider keys are consumed by the OpenCode process. This model is best suited for trusted/internal environments unless stronger credential isolation is introduced.
+- Within one service instance, consumers share the same underlying OpenCode workspace/environment (not tenant-isolated by default).
 
 ## License
 
