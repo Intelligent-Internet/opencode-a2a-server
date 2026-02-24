@@ -376,6 +376,83 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
         self._method_reply_question = methods["reply_question"]
         self._method_reject_question = methods["reject_question"]
 
+    def _session_forbidden_response(
+        self,
+        request_id: str | int | None,
+        *,
+        session_id: str,
+    ) -> Response:
+        return self._generate_error_response(
+            request_id,
+            JSONRPCError(
+                code=ERR_SESSION_FORBIDDEN,
+                message="Session forbidden",
+                data={"type": "SESSION_FORBIDDEN", "session_id": session_id},
+            ),
+        )
+
+    def _extract_directory_from_metadata(
+        self,
+        *,
+        request_id: str | int | None,
+        params: dict[str, Any],
+    ) -> tuple[str | None, Response | None]:
+        metadata = params.get("metadata")
+        if metadata is not None and not isinstance(metadata, dict):
+            return None, self._generate_error_response(
+                request_id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="metadata must be an object",
+                        data={"type": "INVALID_FIELD", "field": "metadata"},
+                    )
+                ),
+            )
+
+        opencode_metadata: dict[str, Any] | None = None
+        if isinstance(metadata, dict):
+            unknown_metadata_fields = sorted(set(metadata) - {"opencode"})
+            if unknown_metadata_fields:
+                prefixed_fields = [f"metadata.{field}" for field in unknown_metadata_fields]
+                return None, self._generate_error_response(
+                    request_id,
+                    A2AError(
+                        root=InvalidParamsError(
+                            message=f"Unsupported metadata fields: {', '.join(prefixed_fields)}",
+                            data={"type": "INVALID_FIELD", "fields": prefixed_fields},
+                        )
+                    ),
+                )
+            raw_opencode_metadata = metadata.get("opencode")
+            if raw_opencode_metadata is not None and not isinstance(raw_opencode_metadata, dict):
+                return None, self._generate_error_response(
+                    request_id,
+                    A2AError(
+                        root=InvalidParamsError(
+                            message="metadata.opencode must be an object",
+                            data={"type": "INVALID_FIELD", "field": "metadata.opencode"},
+                        )
+                    ),
+                )
+            if isinstance(raw_opencode_metadata, dict):
+                opencode_metadata = raw_opencode_metadata
+
+        directory = None
+        if opencode_metadata is not None:
+            directory = opencode_metadata.get("directory")
+        if directory is not None and not isinstance(directory, str):
+            return None, self._generate_error_response(
+                request_id,
+                A2AError(
+                    root=InvalidParamsError(
+                        message="metadata.opencode.directory must be a string",
+                        data={"type": "INVALID_FIELD", "field": "metadata.opencode.directory"},
+                    )
+                ),
+            )
+
+        return directory, None
+
     async def _handle_requests(self, request: Request) -> Response:
         # Fast path: sniff method first then either handle here or delegate.
         request_id: str | int | None = None
@@ -679,58 +756,12 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                 ),
             )
 
-        metadata = params.get("metadata")
-        if metadata is not None and not isinstance(metadata, dict):
-            return self._generate_error_response(
-                base_request.id,
-                A2AError(
-                    root=InvalidParamsError(
-                        message="metadata must be an object",
-                        data={"type": "INVALID_FIELD", "field": "metadata"},
-                    )
-                ),
-            )
-        opencode_metadata: dict[str, Any] | None = None
-        if isinstance(metadata, dict):
-            unknown_metadata_fields = sorted(set(metadata) - {"opencode"})
-            if unknown_metadata_fields:
-                prefixed_fields = [f"metadata.{field}" for field in unknown_metadata_fields]
-                return self._generate_error_response(
-                    base_request.id,
-                    A2AError(
-                        root=InvalidParamsError(
-                            message=f"Unsupported metadata fields: {', '.join(prefixed_fields)}",
-                            data={"type": "INVALID_FIELD", "fields": prefixed_fields},
-                        )
-                    ),
-                )
-            raw_opencode_metadata = metadata.get("opencode")
-            if raw_opencode_metadata is not None and not isinstance(raw_opencode_metadata, dict):
-                return self._generate_error_response(
-                    base_request.id,
-                    A2AError(
-                        root=InvalidParamsError(
-                            message="metadata.opencode must be an object",
-                            data={"type": "INVALID_FIELD", "field": "metadata.opencode"},
-                        )
-                    ),
-                )
-            if isinstance(raw_opencode_metadata, dict):
-                opencode_metadata = raw_opencode_metadata
-
-        directory = None
-        if opencode_metadata is not None:
-            directory = opencode_metadata.get("directory")
-        if directory is not None and not isinstance(directory, str):
-            return self._generate_error_response(
-                base_request.id,
-                A2AError(
-                    root=InvalidParamsError(
-                        message="metadata.opencode.directory must be a string",
-                        data={"type": "INVALID_FIELD", "field": "metadata.opencode.directory"},
-                    )
-                ),
-            )
+        directory, metadata_error = self._extract_directory_from_metadata(
+            request_id=base_request.id,
+            params=params,
+        )
+        if metadata_error is not None:
+            return metadata_error
 
         if self._directory_resolver is not None:
             try:
@@ -762,13 +793,9 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                     session_id=session_id,
                 )
             except PermissionError:
-                return self._generate_error_response(
+                return self._session_forbidden_response(
                     base_request.id,
-                    JSONRPCError(
-                        code=ERR_SESSION_FORBIDDEN,
-                        message="Session forbidden",
-                        data={"type": "SESSION_FORBIDDEN", "session_id": session_id},
-                    ),
+                    session_id=session_id,
                 )
 
         try:
@@ -829,13 +856,9 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
                 ),
             )
         except PermissionError:
-            return self._generate_error_response(
+            return self._session_forbidden_response(
                 base_request.id,
-                JSONRPCError(
-                    code=ERR_SESSION_FORBIDDEN,
-                    message="Session forbidden",
-                    data={"type": "SESSION_FORBIDDEN", "session_id": session_id},
-                ),
+                session_id=session_id,
             )
         except Exception as exc:
             logger.exception("OpenCode session control JSON-RPC method failed")
@@ -882,58 +905,12 @@ class OpencodeSessionQueryJSONRPCApplication(A2AFastAPIApplication):
             )
         request_id = request_id.strip()
         request_identity = getattr(request.state, "user_identity", None)
-        metadata = params.get("metadata")
-        if metadata is not None and not isinstance(metadata, dict):
-            return self._generate_error_response(
-                base_request.id,
-                A2AError(
-                    root=InvalidParamsError(
-                        message="metadata must be an object",
-                        data={"type": "INVALID_FIELD", "field": "metadata"},
-                    )
-                ),
-            )
-        opencode_metadata: dict[str, Any] | None = None
-        if isinstance(metadata, dict):
-            unknown_metadata_fields = sorted(set(metadata) - {"opencode"})
-            if unknown_metadata_fields:
-                prefixed_fields = [f"metadata.{field}" for field in unknown_metadata_fields]
-                return self._generate_error_response(
-                    base_request.id,
-                    A2AError(
-                        root=InvalidParamsError(
-                            message=f"Unsupported metadata fields: {', '.join(prefixed_fields)}",
-                            data={"type": "INVALID_FIELD", "fields": prefixed_fields},
-                        )
-                    ),
-                )
-            raw_opencode_metadata = metadata.get("opencode")
-            if raw_opencode_metadata is not None and not isinstance(raw_opencode_metadata, dict):
-                return self._generate_error_response(
-                    base_request.id,
-                    A2AError(
-                        root=InvalidParamsError(
-                            message="metadata.opencode must be an object",
-                            data={"type": "INVALID_FIELD", "field": "metadata.opencode"},
-                        )
-                    ),
-                )
-            if isinstance(raw_opencode_metadata, dict):
-                opencode_metadata = raw_opencode_metadata
-
-        directory = None
-        if opencode_metadata is not None:
-            directory = opencode_metadata.get("directory")
-        if directory is not None and not isinstance(directory, str):
-            return self._generate_error_response(
-                base_request.id,
-                A2AError(
-                    root=InvalidParamsError(
-                        message="metadata.opencode.directory must be a string",
-                        data={"type": "INVALID_FIELD", "field": "metadata.opencode.directory"},
-                    )
-                ),
-            )
+        directory, metadata_error = self._extract_directory_from_metadata(
+            request_id=base_request.id,
+            params=params,
+        )
+        if metadata_error is not None:
+            return metadata_error
         expected_interrupt_type = (
             "permission" if base_request.method == self._method_reply_permission else "question"
         )

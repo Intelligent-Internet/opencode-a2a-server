@@ -45,12 +45,10 @@ from .agent import OpencodeAgentExecutor
 from .config import Settings
 from .extension_contracts import (
     INTERRUPT_CALLBACK_METHODS,
+    SESSION_CONTROL_METHODS,
     SESSION_QUERY_METHODS,
     build_interrupt_callback_extension_params,
     build_session_query_extension_params,
-)
-from .extension_contracts import (
-    SESSION_CONTROL_METHODS as EXTENSION_SESSION_CONTROL_METHODS,
 )
 from .jsonrpc_ext import (
     SESSION_CONTEXT_PREFIX,
@@ -71,7 +69,6 @@ if TYPE_CHECKING:
 SESSION_BINDING_EXTENSION_URI = "urn:opencode-a2a:opencode-session-binding/v1"
 SESSION_QUERY_EXTENSION_URI = "urn:opencode-a2a:opencode-session-query/v1"
 INTERRUPT_CALLBACK_EXTENSION_URI = "urn:opencode-a2a:opencode-interrupt-callback/v1"
-SESSION_CONTROL_METHODS = dict(EXTENSION_SESSION_CONTROL_METHODS)
 
 
 class OpencodeRequestHandler(DefaultRequestHandler):
