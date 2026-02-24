@@ -186,3 +186,46 @@ async def test_log_payloads_streaming_response_path(monkeypatch, caplog) -> None
         or "A2A response /v1/message:stream streaming" in record.message
         for record in caplog.records
     )
+
+
+def test_create_app_propagates_cancel_abort_timeout(monkeypatch) -> None:
+    import opencode_a2a_serve.app as app_module
+
+    captured: dict[str, float | bool | int] = {}
+
+    class _CapturingExecutor:
+        def __init__(
+            self,
+            _client,
+            *,
+            streaming_enabled: bool,
+            cancel_abort_timeout_seconds: float,
+            session_cache_ttl_seconds: int,
+            session_cache_maxsize: int,
+        ) -> None:
+            captured["streaming_enabled"] = streaming_enabled
+            captured["cancel_abort_timeout_seconds"] = cancel_abort_timeout_seconds
+            captured["session_cache_ttl_seconds"] = session_cache_ttl_seconds
+            captured["session_cache_maxsize"] = session_cache_maxsize
+
+        async def execute(self, _context, _event_queue) -> None:  # noqa: ANN001
+            raise NotImplementedError
+
+        async def cancel(self, _context, _event_queue) -> None:  # noqa: ANN001
+            raise NotImplementedError
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
+    monkeypatch.setattr(app_module, "OpencodeAgentExecutor", _CapturingExecutor)
+
+    app_module.create_app(
+        make_settings(
+            a2a_bearer_token="test-token",
+            a2a_cancel_abort_timeout_seconds=0.25,
+            a2a_session_cache_ttl_seconds=11,
+            a2a_session_cache_maxsize=22,
+        )
+    )
+
+    assert captured["cancel_abort_timeout_seconds"] == 0.25
+    assert captured["session_cache_ttl_seconds"] == 11
+    assert captured["session_cache_maxsize"] == 22

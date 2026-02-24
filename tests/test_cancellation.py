@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -12,7 +13,7 @@ from tests.helpers import configure_mock_client_runtime, make_request_context_mo
 
 
 @pytest.mark.asyncio
-async def test_cancel_interrupts_running_execute_and_keeps_queue_open():
+async def test_cancel_interrupts_running_execute_and_keeps_queue_open(caplog):
     client = AsyncMock(spec=OpencodeClient)
     send_started = asyncio.Event()
     send_cancelled = asyncio.Event()
@@ -61,7 +62,8 @@ async def test_cancel_interrupts_running_execute_and_keeps_queue_open():
     )
     cancel_queue = AsyncMock(spec=EventQueue)
 
-    await asyncio.wait_for(executor.cancel(cancel_context, cancel_queue), timeout=1.0)
+    with caplog.at_level(logging.INFO, logger="opencode_a2a_serve.agent"):
+        await asyncio.wait_for(executor.cancel(cancel_context, cancel_queue), timeout=1.0)
 
     cancel_events = [call.args[0] for call in cancel_queue.enqueue_event.call_args_list]
     assert any(
@@ -75,6 +77,14 @@ async def test_cancel_interrupts_running_execute_and_keeps_queue_open():
 
     assert send_cancelled.is_set()
     client.abort_session.assert_awaited_once_with("session-1", directory="/tmp/workspace")
+    assert any("metric=a2a_cancel_requests_total" in record.message for record in caplog.records)
+    assert any(
+        "metric=a2a_cancel_abort_attempt_total" in record.message for record in caplog.records
+    )
+    assert any(
+        "metric=a2a_cancel_abort_success_total" in record.message for record in caplog.records
+    )
+    assert any("metric=a2a_cancel_duration_ms" in record.message for record in caplog.records)
     assert executor._sessions.get(("user-1", "context-A")) is None
     assert ("task-1", "context-A") not in executor._running_requests
     assert ("task-1", "context-A") not in executor._running_stop_events
@@ -162,7 +172,7 @@ async def test_cancel_keeps_canceled_status_when_abort_session_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancel_remains_responsive_when_abort_session_hangs() -> None:
+async def test_cancel_remains_responsive_when_abort_session_hangs(caplog) -> None:
     client = AsyncMock(spec=OpencodeClient)
     send_started = asyncio.Event()
     send_cancelled = asyncio.Event()
@@ -220,7 +230,8 @@ async def test_cancel_remains_responsive_when_abort_session_hangs() -> None:
         call_context_enabled=False,
     )
     cancel_queue = AsyncMock(spec=EventQueue)
-    await asyncio.wait_for(executor.cancel(cancel_context, cancel_queue), timeout=0.5)
+    with caplog.at_level(logging.INFO, logger="opencode_a2a_serve.agent"):
+        await asyncio.wait_for(executor.cancel(cancel_context, cancel_queue), timeout=0.5)
 
     cancel_events = [call.args[0] for call in cancel_queue.enqueue_event.call_args_list]
     assert any(
@@ -231,6 +242,9 @@ async def test_cancel_remains_responsive_when_abort_session_hangs() -> None:
         await asyncio.wait_for(execute_task, timeout=1.0)
     assert send_cancelled.is_set()
     client.abort_session.assert_awaited_once_with("session-3", directory="/tmp/workspace")
+    assert any(
+        "metric=a2a_cancel_abort_timeout_total" in record.message for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio

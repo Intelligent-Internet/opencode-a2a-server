@@ -109,6 +109,8 @@ For full configuration, see `docs/guide.md`. Most commonly used options:
 - `A2A_STREAMING`: enables SSE streaming (default: `true`)
 - `A2A_SESSION_CACHE_TTL_SECONDS` / `A2A_SESSION_CACHE_MAXSIZE`:
   in-memory `(identity, contextId) -> session_id` mapping cache settings
+- `A2A_CANCEL_ABORT_TIMEOUT_SECONDS`: best-effort upstream `session.abort`
+  timeout for `tasks/cancel` (default: `2.0`)
 
 ## API & Protocol Details
 
