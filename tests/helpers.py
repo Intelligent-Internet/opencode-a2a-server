@@ -161,6 +161,8 @@ class DummyChatOpencodeClient:
 
 class DummySessionQueryOpencodeClient:
     def __init__(self, _settings: Settings) -> None:
+        self.settings = _settings
+        self.directory = _settings.opencode_directory
         self._sessions_payload = [{"id": "s-1", "title": "Session s-1"}]
         self._messages_payload = [
             {

@@ -49,6 +49,9 @@ from .extension_contracts import (
     build_interrupt_callback_extension_params,
     build_session_query_extension_params,
 )
+from .extension_contracts import (
+    SESSION_CONTROL_METHODS as EXTENSION_SESSION_CONTROL_METHODS,
+)
 from .jsonrpc_ext import (
     SESSION_CONTEXT_PREFIX,
     OpencodeSessionQueryJSONRPCApplication,
@@ -68,6 +71,7 @@ if TYPE_CHECKING:
 SESSION_BINDING_EXTENSION_URI = "urn:opencode-a2a:opencode-session-binding/v1"
 SESSION_QUERY_EXTENSION_URI = "urn:opencode-a2a:opencode-session-query/v1"
 INTERRUPT_CALLBACK_EXTENSION_URI = "urn:opencode-a2a:opencode-interrupt-callback/v1"
+SESSION_CONTROL_METHODS = dict(EXTENSION_SESSION_CONTROL_METHODS)
 
 
 class OpencodeRequestHandler(DefaultRequestHandler):
@@ -504,6 +508,10 @@ def create_app(settings: Settings) -> FastAPI:
 
     agent_card = build_agent_card(settings)
     context_builder = IdentityAwareCallContextBuilder()
+    directory_resolver = getattr(executor, "resolve_directory_for_control", None)
+    session_claim = getattr(executor, "claim_session_for_control", None)
+    session_claim_finalize = getattr(executor, "finalize_session_for_control", None)
+    session_claim_release = getattr(executor, "release_session_for_control", None)
 
     # Build JSON-RPC app (POST / by default) and attach REST endpoints (HTTP+JSON) to the same app.
     app = OpencodeSessionQueryJSONRPCApplication(
@@ -511,11 +519,19 @@ def create_app(settings: Settings) -> FastAPI:
         http_handler=handler,
         context_builder=context_builder,
         opencode_client=client,
+        directory_resolver=directory_resolver if callable(directory_resolver) else None,
+        session_claim=session_claim if callable(session_claim) else None,
+        session_claim_finalize=(
+            session_claim_finalize if callable(session_claim_finalize) else None
+        ),
+        session_claim_release=session_claim_release if callable(session_claim_release) else None,
         methods={
             **SESSION_QUERY_METHODS,
+            **SESSION_CONTROL_METHODS,
             **INTERRUPT_CALLBACK_METHODS,
         },
     ).build(title=settings.a2a_title, version=settings.a2a_version, lifespan=lifespan)
+    app.state.opencode_agent_executor = executor
 
     rest_adapter = RESTAdapter(
         agent_card=agent_card,

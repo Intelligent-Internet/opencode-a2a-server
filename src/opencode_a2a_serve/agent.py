@@ -412,6 +412,26 @@ class OpencodeAgentExecutor(AgentExecutor):
 
         return str(requested_path)
 
+    def resolve_directory_for_control(self, requested: str | None) -> str | None:
+        """Shared directory policy for session control JSON-RPC methods."""
+        return self._resolve_and_validate_directory(requested)
+
+    async def claim_session_for_control(self, *, identity: str, session_id: str) -> bool:
+        """Reserve control access for a session.
+
+        Returns True when caller created a pending ownership claim that must be finalized or
+        released after upstream call completes.
+        """
+        return await self._claim_preferred_session(identity=identity, session_id=session_id)
+
+    async def finalize_session_for_control(self, *, identity: str, session_id: str) -> None:
+        """Finalize control-session ownership after upstream call succeeds."""
+        await self._finalize_session_claim(identity=identity, session_id=session_id)
+
+    async def release_session_for_control(self, *, identity: str, session_id: str) -> None:
+        """Release pending control-session ownership on failure."""
+        await self._release_preferred_session_claim(identity=identity, session_id=session_id)
+
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id
         context_id = context.context_id
@@ -826,35 +846,13 @@ class OpencodeAgentExecutor(AgentExecutor):
     ) -> tuple[str, bool]:
         # Caller explicitly bound the request to a known OpenCode session.
         if preferred_session_id:
-            async with self._lock:
-                owner = self._session_owners.get(preferred_session_id)
-                pending_owner = self._pending_session_claims.get(preferred_session_id)
-                if owner and owner != identity:
-                    logger.warning(
-                        "Identity %s tried to hijack session %s owned by %s",
-                        identity,
-                        preferred_session_id,
-                        owner,
-                    )
-                    raise PermissionError(f"Session {preferred_session_id} is not owned by you")
-
-                if pending_owner and pending_owner != identity:
-                    logger.warning(
-                        "Identity %s tried to use session %s while pending owner is %s",
-                        identity,
-                        preferred_session_id,
-                        pending_owner,
-                    )
-                    raise PermissionError(f"Session {preferred_session_id} is not owned by you")
-
-                # Existing owner is trusted and can be bound immediately.
-                if owner == identity:
-                    self._sessions.set((identity, context_id), preferred_session_id)
-                    return preferred_session_id, False
-
-                # Unknown owner: reserve a temporary claim; finalize after upstream send succeeds.
-                self._pending_session_claims[preferred_session_id] = identity
-                return preferred_session_id, True
+            pending_claim = await self._claim_preferred_session(
+                identity=identity,
+                session_id=preferred_session_id,
+            )
+            if not pending_claim:
+                self._sessions.set((identity, context_id), preferred_session_id)
+            return preferred_session_id, pending_claim
 
         task: asyncio.Task[str] | None = None
         cache_key = (identity, context_id)
@@ -898,6 +896,39 @@ class OpencodeAgentExecutor(AgentExecutor):
         context_id: str,
         session_id: str,
     ) -> None:
+        await self._finalize_session_claim(identity=identity, session_id=session_id)
+        async with self._lock:
+            self._sessions.set((identity, context_id), session_id)
+
+    async def _claim_preferred_session(self, *, identity: str, session_id: str) -> bool:
+        async with self._lock:
+            owner = self._session_owners.get(session_id)
+            pending_owner = self._pending_session_claims.get(session_id)
+            if owner and owner != identity:
+                logger.warning(
+                    "Identity %s tried to hijack session %s owned by %s",
+                    identity,
+                    session_id,
+                    owner,
+                )
+                raise PermissionError(f"Session {session_id} is not owned by you")
+
+            if pending_owner and pending_owner != identity:
+                logger.warning(
+                    "Identity %s tried to use session %s while pending owner is %s",
+                    identity,
+                    session_id,
+                    pending_owner,
+                )
+                raise PermissionError(f"Session {session_id} is not owned by you")
+
+            if owner == identity:
+                return False
+
+            self._pending_session_claims[session_id] = identity
+            return True
+
+    async def _finalize_session_claim(self, *, identity: str, session_id: str) -> None:
         async with self._lock:
             owner = self._session_owners.get(session_id)
             pending_owner = self._pending_session_claims.get(session_id)
@@ -907,7 +938,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                 raise PermissionError(f"Session {session_id} is not owned by you")
 
             self._session_owners.set(session_id, identity)
-            self._sessions.set((identity, context_id), session_id)
             if self._pending_session_claims.get(session_id) == identity:
                 self._pending_session_claims.pop(session_id, None)
 

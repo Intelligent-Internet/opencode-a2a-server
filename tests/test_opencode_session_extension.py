@@ -48,11 +48,21 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
     dummy = DummyOpencodeClient(
-        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
     )
     monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
     app = app_module.create_app(
-        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
     )
 
     transport = httpx.ASGITransport(app=app)
@@ -330,11 +340,21 @@ async def test_session_query_extension_rejects_cursor_limit(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
     dummy = DummyOpencodeClient(
-        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
     )
     monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
     app = app_module.create_app(
-        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
     )
 
     transport = httpx.ASGITransport(app=app)
@@ -362,11 +382,21 @@ async def test_session_query_extension_rejects_page_size_pagination(monkeypatch)
     import opencode_a2a_serve.app as app_module
 
     dummy = DummyOpencodeClient(
-        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
     )
     monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
     app = app_module.create_app(
-        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
     )
 
     transport = httpx.ASGITransport(app=app)
@@ -459,11 +489,21 @@ async def test_session_prompt_async_extension_success(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
     dummy = DummyOpencodeClient(
-        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
     )
     monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
     app = app_module.create_app(
-        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
     )
 
     transport = httpx.ASGITransport(app=app)
@@ -593,6 +633,133 @@ async def test_session_prompt_async_extension_rejects_invalid_params(monkeypatch
         payload = bad_model.json()
         assert payload["error"]["code"] == -32602
         assert payload["error"]["data"]["field"] == "request.model.modelID"
+
+
+@pytest.mark.asyncio
+async def test_session_prompt_async_extension_rejects_owner_mismatch(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    app.state.opencode_agent_executor._session_owners.set("s-1", "bearer:other")  # noqa: SLF001
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 311,
+                "method": "opencode.sessions.prompt_async",
+                "params": {
+                    "session_id": "s-1",
+                    "request": {"parts": [{"type": "text", "text": "x"}]},
+                },
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32006
+        assert payload["error"]["data"]["type"] == "SESSION_FORBIDDEN"
+        assert dummy.prompt_async_calls == []
+
+
+@pytest.mark.asyncio
+async def test_session_prompt_async_extension_reuses_directory_boundary_validation(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/safe/workspace",
+            **_BASE_SETTINGS,
+        )
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/safe/workspace",
+            **_BASE_SETTINGS,
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 312,
+                "method": "opencode.sessions.prompt_async",
+                "params": {
+                    "session_id": "s-1",
+                    "request": {"parts": [{"type": "text", "text": "x"}]},
+                    "metadata": {"opencode": {"directory": "../escape"}},
+                },
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32602
+        assert payload["error"]["data"]["field"] == "metadata.opencode.directory"
+        assert dummy.prompt_async_calls == []
+
+
+@pytest.mark.asyncio
+async def test_session_prompt_async_extension_honors_directory_override_switch(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/safe/workspace",
+            a2a_allow_directory_override=False,
+            **_BASE_SETTINGS,
+        )
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/safe/workspace",
+            a2a_allow_directory_override=False,
+            **_BASE_SETTINGS,
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 313,
+                "method": "opencode.sessions.prompt_async",
+                "params": {
+                    "session_id": "s-1",
+                    "request": {"parts": [{"type": "text", "text": "x"}]},
+                    "metadata": {"opencode": {"directory": "/safe/workspace/subdir"}},
+                },
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32602
+        assert payload["error"]["data"]["field"] == "metadata.opencode.directory"
+        assert dummy.prompt_async_calls == []
 
 
 @pytest.mark.asyncio

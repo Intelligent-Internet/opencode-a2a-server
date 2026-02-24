@@ -58,6 +58,9 @@ def test_agent_card_injects_deployment_context_into_extensions() -> None:
     assert session_query.params["deployment_context"]["project"] == "alpha"
     assert session_query.params["shared_workspace_across_consumers"] is True
     assert session_query.params["tenant_isolation"] == "none"
+    assert session_query.params["control_methods"] == {
+        "prompt_async": "opencode.sessions.prompt_async"
+    }
     assert session_query.params["methods"]["prompt_async"] == "opencode.sessions.prompt_async"
     assert session_query.params["pagination"]["applies_to"] == [
         "opencode.sessions.list",
@@ -82,6 +85,13 @@ def test_agent_card_injects_deployment_context_into_extensions() -> None:
         session_query.params["context_semantics"]["upstream_session_id_field"]
         == "metadata.opencode.session_id"
     )
+    assert session_query.params["errors"]["business_codes"] == {
+        "SESSION_NOT_FOUND": -32001,
+        "SESSION_FORBIDDEN": -32006,
+        "UPSTREAM_UNREACHABLE": -32002,
+        "UPSTREAM_HTTP_ERROR": -32003,
+        "UPSTREAM_PAYLOAD_ERROR": -32005,
+    }
     assert session_query.params["errors"]["invalid_params_data_fields"] == [
         "type",
         "field",

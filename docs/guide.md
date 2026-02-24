@@ -218,6 +218,18 @@ Response:
 
 - success => `{"ok": true, "session_id": "<session_id>"}` (JSON-RPC result)
 - notification (no `id`) => HTTP `204 No Content`
+- error types:
+  - `SESSION_NOT_FOUND`
+  - `SESSION_FORBIDDEN`
+  - `UPSTREAM_UNREACHABLE`
+  - `UPSTREAM_HTTP_ERROR`
+  - `UPSTREAM_PAYLOAD_ERROR`
+
+Validation notes:
+
+- `metadata.opencode.directory` follows the same normalization and boundary rules
+  as message send (`realpath` + workspace boundary check).
+- Control methods enforce session owner guard based on request identity.
 
 ## OpenCode Interrupt Callback (A2A Extension)
 
