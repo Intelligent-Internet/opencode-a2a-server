@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from a2a.server.request_handlers.default_request_handler import DefaultRequestHandler
 from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
 from a2a.types import (
     Task,
@@ -51,6 +52,28 @@ async def test_cancel_rejects_completed_task() -> None:
 
     assert isinstance(exc.value.error, TaskNotCancelableError)
     executor.cancel.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancel_is_race_safe_when_task_becomes_canceled_during_super_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executor = AsyncMock()
+    store = InMemoryTaskStore()
+    handler = OpencodeRequestHandler(agent_executor=executor, task_store=store)
+    task = _task(task_id="task-race", context_id="ctx-race", state=TaskState.working)
+    await store.save(task)
+
+    async def _fake_super_cancel(_self, params: TaskIdParams, context=None):  # noqa: ANN001
+        await store.save(_task(task_id=params.id, context_id="ctx-race", state=TaskState.canceled))
+        raise ServerError(error=TaskNotCancelableError(message="task already canceled"))
+
+    monkeypatch.setattr(DefaultRequestHandler, "on_cancel_task", _fake_super_cancel)
+
+    result = await handler.on_cancel_task(TaskIdParams(id="task-race"))
+
+    assert result is not None
+    assert result.status.state == TaskState.canceled
 
 
 @pytest.mark.asyncio

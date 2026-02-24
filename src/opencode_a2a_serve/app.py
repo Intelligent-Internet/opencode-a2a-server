@@ -97,7 +97,15 @@ class OpencodeRequestHandler(DefaultRequestHandler):
                     message=f"Task cannot be canceled - current state: {task.status.state}"
                 )
             )
-        return await super().on_cancel_task(params, context)
+        try:
+            return await super().on_cancel_task(params, context)
+        except ServerError as exc:
+            # Race-safe idempotency: task may become canceled between pre-check and super call.
+            if isinstance(exc.error, TaskNotCancelableError):
+                refreshed = await self.task_store.get(params.id, context)
+                if refreshed and refreshed.status.state == TaskState.canceled:
+                    return refreshed
+            raise
 
     async def on_resubscribe_to_task(
         self,
