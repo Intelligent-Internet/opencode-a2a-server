@@ -179,7 +179,9 @@ def build_session_query_extension_params(
             "result": result_contract,
         }
         if method_contract.notification_response_status is not None:
-            contract_doc["notification_response_status"] = method_contract.notification_response_status
+            contract_doc["notification_response_status"] = (
+                method_contract.notification_response_status
+            )
         method_contracts[method_contract.method] = contract_doc
 
         envelope_doc: dict[str, Any] = {"fields": list(method_contract.result_fields)}
@@ -191,7 +193,7 @@ def build_session_query_extension_params(
             pagination_applies_to.append(method_contract.method)
 
     return {
-        "methods": SESSION_QUERY_METHODS,
+        "methods": dict(SESSION_QUERY_METHODS),
         "shared_workspace_across_consumers": True,
         "tenant_isolation": "none",
         "deployment_context": deployment_context,
@@ -203,7 +205,7 @@ def build_session_query_extension_params(
         },
         "method_contracts": method_contracts,
         "errors": {
-            "business_codes": SESSION_QUERY_ERROR_BUSINESS_CODES,
+            "business_codes": dict(SESSION_QUERY_ERROR_BUSINESS_CODES),
             "error_data_fields": list(SESSION_QUERY_ERROR_DATA_FIELDS),
         },
         "result_envelope": {
@@ -233,7 +235,7 @@ def build_interrupt_callback_extension_params(
         }
 
     return {
-        "methods": INTERRUPT_CALLBACK_METHODS,
+        "methods": dict(INTERRUPT_CALLBACK_METHODS),
         "method_contracts": method_contracts,
         "supported_interrupt_events": [
             "permission.asked",
@@ -250,7 +252,7 @@ def build_interrupt_callback_extension_params(
         },
         "success_result_fields": list(INTERRUPT_SUCCESS_RESULT_FIELDS),
         "errors": {
-            "business_codes": INTERRUPT_ERROR_BUSINESS_CODES,
+            "business_codes": dict(INTERRUPT_ERROR_BUSINESS_CODES),
             "error_types": list(INTERRUPT_ERROR_TYPES),
             "error_data_fields": list(INTERRUPT_ERROR_DATA_FIELDS),
         },
@@ -258,4 +260,3 @@ def build_interrupt_callback_extension_params(
         "tenant_isolation": "none",
         "deployment_context": deployment_context,
     }
-
