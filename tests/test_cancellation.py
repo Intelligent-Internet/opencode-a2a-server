@@ -231,3 +231,48 @@ async def test_cancel_remains_responsive_when_abort_session_hangs() -> None:
         await asyncio.wait_for(execute_task, timeout=1.0)
     assert send_cancelled.is_set()
     client.abort_session.assert_awaited_once_with("session-3", directory="/tmp/workspace")
+
+
+@pytest.mark.asyncio
+async def test_cancel_waiting_for_session_lock_does_not_abort_other_generation() -> None:
+    client = AsyncMock(spec=OpencodeClient)
+    client.create_session.return_value = "session-4"
+    client.send_message = AsyncMock()
+    client.abort_session.return_value = True
+    configure_mock_client_runtime(client)
+
+    executor = OpencodeAgentExecutor(client, streaming_enabled=False)
+    prelocked_session_lock = asyncio.Lock()
+    await prelocked_session_lock.acquire()
+    executor._session_locks["session-4"] = prelocked_session_lock
+
+    execute_context = make_request_context_mock(
+        task_id="task-4",
+        context_id="context-D",
+        identity="user-4",
+        user_input="hello",
+    )
+    execute_queue = AsyncMock(spec=EventQueue)
+    execute_task = asyncio.create_task(executor.execute(execute_context, execute_queue))
+
+    try:
+        for _ in range(20):
+            if executor._sessions.get(("user-4", "context-D")) == "session-4":
+                break
+            await asyncio.sleep(0.01)
+
+        cancel_context = make_request_context_mock(
+            task_id="task-4",
+            context_id="context-D",
+            call_context_enabled=False,
+        )
+        cancel_queue = AsyncMock(spec=EventQueue)
+        await asyncio.wait_for(executor.cancel(cancel_context, cancel_queue), timeout=1.0)
+
+        client.abort_session.assert_not_awaited()
+        client.send_message.assert_not_awaited()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(execute_task, timeout=1.0)
+    finally:
+        if prelocked_session_lock.locked():
+            prelocked_session_lock.release()

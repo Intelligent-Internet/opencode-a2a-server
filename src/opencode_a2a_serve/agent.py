@@ -493,11 +493,11 @@ class OpencodeAgentExecutor(AgentExecutor):
                 preferred_session_id=bound_session_id,
                 directory=directory,
             )
+            session_lock = await self._get_session_lock(session_id)
+            await session_lock.acquire()
             async with self._lock:
                 self._running_session_ids[execution_key] = session_id
                 self._running_directories[execution_key] = directory
-            session_lock = await self._get_session_lock(session_id)
-            await session_lock.acquire()
 
             if streaming_request:
                 stream_task = asyncio.create_task(
@@ -717,8 +717,6 @@ class OpencodeAgentExecutor(AgentExecutor):
                 stop_event = self._running_stop_events.get(execution_key)
                 running_session_id = self._running_session_ids.get(execution_key)
                 running_directory = self._running_directories.get(execution_key)
-                if running_session_id is None and running_task and not running_task.done():
-                    running_session_id = self._sessions.get((running_identity, context_id))
                 self._sessions.pop((running_identity, context_id))
                 inflight = self._inflight_session_creates.pop((running_identity, context_id), None)
             if stop_event:
