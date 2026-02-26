@@ -139,9 +139,11 @@ class Settings(BaseSettings):
             except (ValueError, UnicodeDecodeError) as exc:
                 raise ValueError("A2A_JWT_SECRET_B64 must be valid base64-encoded text") from exc
         elif self.a2a_jwt_secret_file and not self.a2a_jwt_secret:
-            self.a2a_jwt_secret = (
-                Path(self.a2a_jwt_secret_file).expanduser().read_text(encoding="utf-8")
-            )
+            secret_path = Path(self.a2a_jwt_secret_file).expanduser()
+            try:
+                self.a2a_jwt_secret = secret_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise ValueError(f"A2A_JWT_SECRET_FILE is not readable: {secret_path}") from exc
 
         if not self.a2a_jwt_secret:
             raise ValueError(

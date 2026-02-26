@@ -28,6 +28,10 @@ else
     echo "JWT mode requires one of A2A_JWT_SECRET/A2A_JWT_SECRET_B64/A2A_JWT_SECRET_FILE" >&2
     exit 1
   fi
+  if [[ -n "${A2A_JWT_SECRET_FILE:-}" && ! -r "${A2A_JWT_SECRET_FILE}" ]]; then
+    echo "A2A_JWT_SECRET_FILE is not readable: ${A2A_JWT_SECRET_FILE}" >&2
+    exit 1
+  fi
   if [[ -z "${A2A_JWT_ISSUER:-}" || -z "${A2A_JWT_AUDIENCE:-}" ]]; then
     echo "JWT mode requires both A2A_JWT_ISSUER and A2A_JWT_AUDIENCE" >&2
     exit 1

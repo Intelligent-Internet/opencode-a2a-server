@@ -45,6 +45,20 @@ def test_settings_jwt_mode_valid_without_bearer_token():
         assert settings.a2a_jwt_secret == expected_secret
 
 
+def test_settings_jwt_mode_secret_file_not_readable():
+    env = {
+        "A2A_AUTH_MODE": "jwt",
+        "A2A_JWT_SECRET_FILE": "/tmp/non-existent-jwt-secret-file",
+        "A2A_JWT_ALGORITHM": "HS256",
+        "A2A_JWT_ISSUER": "issuer",
+        "A2A_JWT_AUDIENCE": "audience",
+    }
+    with mock.patch.dict(os.environ, env, clear=True):
+        with pytest.raises(ValidationError) as excinfo:
+            Settings.from_env()
+        assert "A2A_JWT_SECRET_FILE is not readable" in str(excinfo.value)
+
+
 def test_settings_bearer_mode_ignores_invalid_jwt_fields():
     env = {
         "A2A_AUTH_MODE": "bearer",

@@ -37,7 +37,7 @@ JWT mode example:
 GH_TOKEN='<gh-token>' \
 A2A_AUTH_MODE=jwt \
 A2A_JWT_SECRET_FILE=./jwt-public.pem \
-A2A_JWT_ALGORITHM=HS256 \
+A2A_JWT_ALGORITHM=RS256 \
 A2A_JWT_ISSUER='compass' \
 A2A_JWT_AUDIENCE='opencode-a2a:alpha' \
 ./scripts/deploy.sh project=alpha a2a_port=8010 a2a_host=127.0.0.1

@@ -46,7 +46,7 @@ Or start in JWT mode:
 ```bash
 A2A_AUTH_MODE=jwt \
 A2A_JWT_SECRET_FILE=./jwt-public.pem \
-A2A_JWT_ALGORITHM=HS256 \
+A2A_JWT_ALGORITHM=RS256 \
 A2A_JWT_ISSUER=dev-issuer \
 A2A_JWT_AUDIENCE=dev-audience \
 uv run opencode-a2a-serve
