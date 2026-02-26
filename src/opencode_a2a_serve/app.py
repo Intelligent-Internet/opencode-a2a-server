@@ -920,7 +920,7 @@ def create_app(settings: Settings) -> FastAPI:
                 request_omit_reason = f"non-json content-type={content_type or 'unknown'}"
             elif limit > 0 and content_length is None:
                 request_omit_reason = f"missing content-length with limit={limit}"
-            elif limit > 0 and content_length > limit:
+            elif limit > 0 and content_length is not None and content_length > limit:
                 request_omit_reason = f"content-length={content_length} exceeds limit={limit}"
             else:
                 body, token = await _get_request_body(request)
