@@ -244,7 +244,7 @@ async def test_log_payloads_streaming_response_path(monkeypatch, caplog) -> None
 
 
 @pytest.mark.asyncio
-async def test_log_payloads_omits_non_text_request_body(monkeypatch, caplog) -> None:
+async def test_log_payloads_omits_non_json_request_body(monkeypatch, caplog) -> None:
     import opencode_a2a_serve.app as app_module
 
     monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
@@ -261,10 +261,38 @@ async def test_log_payloads_omits_non_text_request_body(monkeypatch, caplog) -> 
             assert resp.status_code < 500
 
     assert any(
-        "body=[omitted non-text content-type=application/octet-stream]" in record.message
+        "body=[omitted non-json content-type=application/octet-stream]" in record.message
         for record in caplog.records
     )
     assert "\\x00\\x01\\x02\\x03" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_log_payloads_omits_text_plain_request_body(monkeypatch, caplog) -> None:
+    import opencode_a2a_serve.app as app_module
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
+    app = app_module.create_app(make_settings(a2a_bearer_token="test-token", a2a_log_payloads=True))
+    transport = httpx.ASGITransport(app=app)
+    headers = {
+        "Authorization": "Bearer test-token",
+        "Content-Type": "text/plain",
+    }
+    body = (
+        '{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":'
+        '{"messageId":"m","role":"user","parts":[{"kind":"text","text":"secret"}]}}}'
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="opencode_a2a_serve.app"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/", headers=headers, content=body)
+            assert resp.status_code < 500
+
+    assert any(
+        "body=[omitted non-json content-type=text/plain]" in record.message
+        for record in caplog.records
+    )
+    assert "secret" not in caplog.text
 
 
 @pytest.mark.asyncio

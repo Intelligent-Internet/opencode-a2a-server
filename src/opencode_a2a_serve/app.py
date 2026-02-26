@@ -832,18 +832,12 @@ def create_app(settings: Settings) -> FastAPI:
             return ""
         return value.split(";", 1)[0].strip().lower()
 
-    def _is_textual_content_type(content_type: str) -> bool:
+    def _is_json_content_type(content_type: str) -> bool:
         if not content_type:
             return False
-        if content_type.startswith("text/"):
+        if content_type == "application/json":
             return True
-        if content_type in {
-            "application/json",
-            "application/xml",
-            "application/x-www-form-urlencoded",
-        }:
-            return True
-        return content_type.endswith("+json") or content_type.endswith("+xml")
+        return content_type.endswith("+json")
 
     def _decode_payload_preview(body: bytes, *, limit: int) -> str:
         if limit > 0 and len(body) > limit:
@@ -922,8 +916,8 @@ def create_app(settings: Settings) -> FastAPI:
             sensitive_method: str | None = None
             request_omit_reason: str | None = None
 
-            if not _is_textual_content_type(content_type):
-                request_omit_reason = f"non-text content-type={content_type or 'unknown'}"
+            if not _is_json_content_type(content_type):
+                request_omit_reason = f"non-json content-type={content_type or 'unknown'}"
             elif limit > 0 and content_length is None:
                 request_omit_reason = f"missing content-length with limit={limit}"
             elif limit > 0 and content_length > limit:
@@ -986,9 +980,9 @@ def create_app(settings: Settings) -> FastAPI:
                     request_omit_reason,
                 )
                 return response
-            if not _is_textual_content_type(response_content_type):
+            if not _is_json_content_type(response_content_type):
                 logger.debug(
-                    "A2A response %s status=%s bytes=%s body=[omitted non-text content-type=%s]",
+                    "A2A response %s status=%s bytes=%s body=[omitted non-json content-type=%s]",
                     path,
                     response.status_code,
                     len(response_body),
