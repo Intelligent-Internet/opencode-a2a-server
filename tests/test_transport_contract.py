@@ -177,6 +177,21 @@ def _rest_message_payload() -> dict:
     }
 
 
+def _jsonrpc_message_send_payload(text: str) -> dict:
+    return {
+        "jsonrpc": "2.0",
+        "id": 99,
+        "method": "message/send",
+        "params": {
+            "message": {
+                "messageId": "m-rpc",
+                "role": "user",
+                "parts": [{"kind": "text", "text": text}],
+            }
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_log_payloads_keeps_body_for_rest_handler(monkeypatch, caplog) -> None:
     import opencode_a2a_serve.app as app_module
@@ -226,6 +241,62 @@ async def test_log_payloads_streaming_response_path(monkeypatch, caplog) -> None
         or "A2A response /v1/message:stream streaming" in record.message
         for record in caplog.records
     )
+
+
+@pytest.mark.asyncio
+async def test_log_payloads_omits_non_text_request_body(monkeypatch, caplog) -> None:
+    import opencode_a2a_serve.app as app_module
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
+    app = app_module.create_app(make_settings(a2a_bearer_token="test-token", a2a_log_payloads=True))
+    transport = httpx.ASGITransport(app=app)
+    headers = {
+        "Authorization": "Bearer test-token",
+        "Content-Type": "application/octet-stream",
+    }
+
+    with caplog.at_level(logging.DEBUG, logger="opencode_a2a_serve.app"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/", headers=headers, content=b"\x00\x01\x02\x03")
+            assert resp.status_code < 500
+
+    assert any(
+        "body=[omitted non-text content-type=application/octet-stream]" in record.message
+        for record in caplog.records
+    )
+    assert "\\x00\\x01\\x02\\x03" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_log_payloads_omits_oversized_request_body(monkeypatch, caplog) -> None:
+    import opencode_a2a_serve.app as app_module
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
+    app = app_module.create_app(
+        make_settings(
+            a2a_bearer_token="test-token",
+            a2a_log_payloads=True,
+            a2a_log_body_limit=64,
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    headers = {"Authorization": "Bearer test-token"}
+    oversized_text = "x" * 512
+
+    with caplog.at_level(logging.DEBUG, logger="opencode_a2a_serve.app"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/",
+                headers=headers,
+                json=_jsonrpc_message_send_payload(oversized_text),
+            )
+            assert resp.status_code == 200
+
+    assert any(
+        "body=[omitted content-length=" in record.message and "exceeds limit=64" in record.message
+        for record in caplog.records
+    )
+    assert oversized_text not in caplog.text
 
 
 def test_create_app_propagates_cancel_abort_timeout(monkeypatch) -> None:
