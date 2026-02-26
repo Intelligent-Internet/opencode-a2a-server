@@ -296,6 +296,51 @@ async def test_log_payloads_omits_text_plain_request_body(monkeypatch, caplog) -
 
 
 @pytest.mark.asyncio
+async def test_log_payloads_omits_when_content_length_missing(monkeypatch, caplog) -> None:
+    import opencode_a2a_serve.app as app_module
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
+    app = app_module.create_app(
+        make_settings(
+            a2a_bearer_token="test-token",
+            a2a_log_payloads=True,
+            a2a_log_body_limit=64,
+        )
+    )
+    transport = httpx.ASGITransport(app=app)
+    headers = {
+        "Authorization": "Bearer test-token",
+        "Content-Type": "application/json",
+    }
+    body = (
+        b'{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":'
+        b'{"messageId":"m","role":"user","parts":[{"kind":"text","text":"missing-cl"}]}}}'
+    )
+
+    async def _body_stream():
+        yield body
+
+    with caplog.at_level(logging.DEBUG, logger="opencode_a2a_serve.app"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/",
+                headers=headers,
+                content=_body_stream(),
+            )
+            assert resp.status_code == 200
+
+    assert any(
+        "body=[omitted missing content-length with limit=64]" in record.message
+        for record in caplog.records
+    )
+    assert any(
+        "body=[omitted request_missing content-length with limit=64]" in record.message
+        for record in caplog.records
+    )
+    assert "missing-cl" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_log_payloads_omits_oversized_request_body(monkeypatch, caplog) -> None:
     import opencode_a2a_serve.app as app_module
 

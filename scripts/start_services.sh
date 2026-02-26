@@ -3,10 +3,7 @@
 # Start local foreground OpenCode + A2A processes.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-# shellcheck source=opencode_log_level.sh
-source "${SCRIPT_DIR}/opencode_log_level.sh"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 A2A_PORT="${A2A_PORT:-8000}"
@@ -22,7 +19,18 @@ OPENCODE_LOG="${OPENCODE_LOG:-${LOG_DIR}/opencode_serve.log}"
 A2A_LOG="${A2A_LOG:-${LOG_DIR}/opencode_a2a.log}"
 A2A_PUBLIC_URL="${A2A_PUBLIC_URL:-http://${A2A_HOST}:${A2A_PORT}}"
 
-OPENCODE_LOG_LEVEL="$(normalize_opencode_log_level "${OPENCODE_LOG_LEVEL}")"
+case "${OPENCODE_LOG_LEVEL^^}" in
+  DEBUG|INFO|WARN|ERROR)
+    OPENCODE_LOG_LEVEL="${OPENCODE_LOG_LEVEL^^}"
+    ;;
+  WARNING)
+    OPENCODE_LOG_LEVEL="WARN"
+    ;;
+  *)
+    echo "Invalid OPENCODE_LOG_LEVEL value: ${OPENCODE_LOG_LEVEL} (expected DEBUG/INFO/WARN/WARNING/ERROR)" >&2
+    exit 1
+    ;;
+esac
 
 kill_existing() {
   local pattern="$1"
