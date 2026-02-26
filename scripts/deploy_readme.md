@@ -12,7 +12,7 @@ Out of scope:
 
 - product/API transport contract and JSON-RPC semantics
 
-For product/protocol behavior, see [`../docs/guide.md`](../docs/guide.md).
+For product/protocol behavior and runtime auth contract, see [`../docs/guide.md`](../docs/guide.md).
 
 ## Prerequisites
 
@@ -137,7 +137,7 @@ Sensitive values are blocked from CLI keys by design.
 | `A2A_PUBLIC_URL` | `a2a_public_url` | Optional | `http://<A2A_HOST>:<A2A_PORT>` | Public URL in Agent Card. |
 | `A2A_AUTH_MODE` | `a2a_auth_mode` | Optional | `bearer` | Auth mode switch (`bearer`/`jwt`). |
 | `A2A_JWT_SECRET_FILE` | `a2a_jwt_secret_file` | JWT mode, conditional | None | JWT key file path. |
-| `A2A_JWT_ALGORITHM` | `a2a_jwt_algorithm` | Optional | `RS256` | JWT verification algorithm (must be asymmetric: RS*/PS*/ES*/EdDSA). |
+| `A2A_JWT_ALGORITHM` | `a2a_jwt_algorithm` | Optional | `RS256` | JWT verification algorithm for runtime. |
 | `A2A_JWT_ISSUER` | `a2a_jwt_issuer` | JWT mode | None | JWT issuer claim check. |
 | `A2A_JWT_AUDIENCE` | `a2a_jwt_audience` | JWT mode | None | JWT audience claim check. |
 | `A2A_REQUIRED_SCOPES` | `a2a_required_scopes` | Optional | empty | Required scopes for JWT tokens. |

@@ -3,6 +3,7 @@
 This guide covers configuration, authentication, API behavior, streaming re-subscription, and A2A client usage examples.
 It is also the canonical document for implementation-level protocol contracts
 and JSON-RPC extension details (README stays at overview level).
+Runtime authentication policy is defined in this document as the single source of truth.
 
 ## Transport Contracts
 

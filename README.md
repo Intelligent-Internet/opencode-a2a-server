@@ -35,21 +35,10 @@ opencode serve
 uv sync --all-extras
 ```
 
-3. Start this service (bearer mode, default):
+3. Start this service:
 
 ```bash
 A2A_BEARER_TOKEN=dev-token uv run opencode-a2a-serve
-```
-
-Or start in JWT mode:
-
-```bash
-A2A_AUTH_MODE=jwt \
-A2A_JWT_SECRET_FILE=./jwt-public.pem \
-A2A_JWT_ALGORITHM=RS256 \
-A2A_JWT_ISSUER=dev-issuer \
-A2A_JWT_AUDIENCE=dev-audience \
-uv run opencode-a2a-serve
 ```
 
 Default address: `http://127.0.0.1:8000`
@@ -77,12 +66,8 @@ For deployment and operations scripts, see [`scripts/README.md`](scripts/README.
 
 ## Security Boundary
 
-- Startup auth config depends on mode:
-  - `A2A_AUTH_MODE=bearer` (default): requires `A2A_BEARER_TOKEN`
-  - `A2A_AUTH_MODE=jwt`: requires JWT key (`A2A_JWT_SECRET` or
-    `A2A_JWT_SECRET_B64` or `A2A_JWT_SECRET_FILE`) plus
-    `A2A_JWT_ISSUER` and `A2A_JWT_AUDIENCE`; `A2A_JWT_ALGORITHM` must be
-    asymmetric (`RS*`/`PS*`/`ES*`/`EdDSA`)
+- Runtime auth contract and required variables are defined in
+  [`docs/guide.md`](docs/guide.md) (single source of truth).
 - LLM provider keys are consumed by the OpenCode process. This model is best suited for trusted/internal environments unless stronger credential isolation is introduced.
 - Within one service instance, consumers share the same underlying OpenCode workspace/environment (not tenant-isolated by default).
 
