@@ -1,51 +1,51 @@
 # AGENTS.md
 
-以下规范适用于当前仓库内的 coding agent 协作与交付流程。
+The following rules apply to coding-agent collaboration and delivery in this repository.
 
-## 1. 核心原则
+## 1. Core Principles
 
-- 在保证安全、可追踪的前提下推进任务，避免不必要的流程阻断。
-- 保持与现有仓库结构、实现风格和工程习惯一致。
+- Move tasks forward safely and traceably, while avoiding unnecessary process blockers.
+- Stay consistent with the existing repository structure, implementation style, and engineering conventions.
 
-## 2. Git 工作流
+## 2. Git Workflow
 
-- 禁止直接向受保护分支提交或推送：`main`/`master`/`release/*`。
-- 每项开发任务应在独立分支实施，建议从最新主干切出。
-- 同步主干优先使用 `git fetch` + `git merge --ff-only`，避免隐式合并。
-- 允许将开发分支推送到远端同名分支，便于协作与备份。
-- 禁止改写公共历史：`git push --force`、`git push --force-with-lease`、随意 `rebase`。
-- 仅提交本次任务相关文件，不清理或回滚与任务无关的在地改动。
+- Do not commit or push directly to protected branches: `main`/`master`/`release/*`.
+- Implement each development task in an isolated branch, preferably cut from the latest mainline.
+- To sync mainline, prefer `git fetch` + `git merge --ff-only` and avoid implicit merges.
+- Pushing a development branch to a same-name remote branch is allowed for collaboration and backup.
+- Do not rewrite shared history: no `git push --force`, `git push --force-with-lease`, or arbitrary `rebase`.
+- Commit only files related to the current task; do not clean up or roll back unrelated local changes.
 
-## 3. Issue 与 PR 协作
+## 3. Issue and PR Collaboration
 
-- 开发类任务开始前，先检查是否已有相关 open Issue（例如 `gh issue list --state open`）。
-- 若无相关 Issue，应创建新 Issue 跟踪；Issue 建议包含背景、复现步骤、预期/实际、验收标准，并附 `git rev-parse HEAD` 快照。
-- 仅协作规范/流程文档改动（如 `AGENTS.md`）可直接修改，无需额外创建 Issue。
-- Issue 标题前缀建议使用 `[feat]`、`[bug]`、`[docs]`、`[ops]`、`[chore]`。
-- 提交信息若服务于某个 Issue，应在 commit message 中标注对应 `#issue`。
-- PR 默认建议创建为 Draft，并在描述中标明关联关系（如 `Closes #xx` / `Relates to #xx`）。
-- 出现关键进展、方案变化或新风险时，及时在对应 Issue/PR 中同步，避免重复评论。
+- Before starting development work, check whether a related open Issue already exists (for example, `gh issue list --state open`).
+- If none exists, create a new Issue for tracking. The Issue should include context, reproduction steps, expected/actual behavior, acceptance criteria, and a `git rev-parse HEAD` snapshot.
+- Changes limited to collaboration/process documents (for example, `AGENTS.md`) may be made directly without creating an additional Issue.
+- Recommended Issue title prefixes: `[feat]`, `[bug]`, `[docs]`, `[ops]`, `[chore]`.
+- If a commit serves an Issue, reference the Issue ID in the commit message (for example, `#issue`).
+- PRs are recommended to start as Draft by default, with relationship markers in the description (for example, `Closes #xx` / `Relates to #xx`).
+- When key progress, plan changes, or new risks arise, synchronize updates in the related Issue/PR promptly to avoid repetitive comments.
 
-## 4. 工具与文本规范
+## 4. Tooling and Text Conventions
 
-- 读写 Issue/PR 使用 `gh` CLI，不通过网页手工编辑。
-- Issue、PR 与评论使用简体中文；专业术语可保留英文。
-- 多行正文先写入临时文件，再用 `--body-file` 传入；不要在 `--body` 中拼接 `\\n`。
-- 同仓引用使用 `#123` 自动链接；跨仓引用使用完整 URL。
+- Use the `gh` CLI for reading/writing Issues and PRs; do not edit via web UI manually.
+- Use Simplified Chinese for Issues, PRs, and comments. English technical terms may be retained.
+- For multi-line bodies, write to a temp file first and pass it via `--body-file`; do not concatenate `\\n` in `--body`.
+- For same-repo references, use `#123` auto-linking; for cross-repo references, use full URLs.
 
-## 5. 回归与验证
+## 5. Regression and Validation
 
-- 回归策略按改动类型选择；默认基线为：
+- Choose regression strategy by change type. Default baseline:
   - `uv run pre-commit run --all-files`
   - `uv run pytest`
-- `pre-commit` 若自动修复文件（如 `ruff --fix`），需复查改动后再提交。
-- Shell/部署脚本改动：在基线之外，至少执行 `bash -n` 对改动脚本做语法校验。
-- 文档-only 改动：可不跑测试，但应自检命令与路径示例可用。
-- `uv sync --all-extras` 仅在首次初始化或依赖变更时需要，不作为每次改动必做项。
-- 若受环境限制无法完成某项验证，必须在汇报中明确说明未执行项与原因。
+- If `pre-commit` auto-fixes files (for example, `ruff --fix`), review those changes before committing.
+- For shell/deployment script changes, run `bash -n` on modified scripts in addition to the baseline.
+- For docs-only changes, tests may be skipped, but command and path examples must be self-verified.
+- `uv sync --all-extras` is only needed during first-time setup or dependency changes; it is not required for every change.
+- If any validation cannot be completed due to environment constraints, clearly state what was not run and why.
 
-## 6. 安全与配置
+## 6. Security and Configuration
 
-- 严禁提交密钥、令牌、凭证或其他敏感信息（含 `.env` 内容）。
-- 日志与调试输出不得泄露访问令牌或隐私数据。
-- 涉及部署、认证、密钥注入的改动，需同步更新文档并提供最小验收步骤。
+- Never commit keys, tokens, credentials, or other sensitive information (including `.env` contents).
+- Logs and debug output must not leak access tokens or private data.
+- For changes involving deployment, authentication, or secret injection, update documentation together and provide minimal acceptance steps.
