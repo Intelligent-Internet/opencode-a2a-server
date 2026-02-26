@@ -15,7 +15,7 @@ A2A_BEARER_TOKEN="${A2A_BEARER_TOKEN:-}"
 A2A_JWT_SECRET="${A2A_JWT_SECRET:-}"
 A2A_JWT_SECRET_B64="${A2A_JWT_SECRET_B64:-}"
 A2A_JWT_SECRET_FILE="${A2A_JWT_SECRET_FILE:-}"
-A2A_JWT_ALGORITHM="${A2A_JWT_ALGORITHM:-HS256}"
+A2A_JWT_ALGORITHM="${A2A_JWT_ALGORITHM:-RS256}"
 A2A_JWT_ISSUER="${A2A_JWT_ISSUER:-}"
 A2A_JWT_AUDIENCE="${A2A_JWT_AUDIENCE:-}"
 A2A_REQUIRED_SCOPES="${A2A_REQUIRED_SCOPES:-}"
@@ -217,9 +217,38 @@ else
     echo "JWT mode requires one of A2A_JWT_SECRET/A2A_JWT_SECRET_B64/A2A_JWT_SECRET_FILE" >&2
     exit 1
   fi
+  if [[ -n "$A2A_JWT_SECRET" && "$A2A_JWT_SECRET" == *"PRIVATE KEY"* ]]; then
+    echo "A2A_JWT_SECRET must be a public verification key, not a private key" >&2
+    exit 1
+  fi
+  if [[ -n "$A2A_JWT_SECRET_FILE" ]]; then
+    jwt_secret_file="$A2A_JWT_SECRET_FILE"
+    if [[ "$jwt_secret_file" == "~/"* ]]; then
+      jwt_secret_file="${HOME}/${jwt_secret_file#~/}"
+    elif [[ "$jwt_secret_file" == "~" ]]; then
+      jwt_secret_file="${HOME}"
+    fi
+    if [[ ! -r "$jwt_secret_file" ]]; then
+      echo "A2A_JWT_SECRET_FILE is not readable: $A2A_JWT_SECRET_FILE" >&2
+      exit 1
+    fi
+  fi
   if [[ -z "$A2A_JWT_ISSUER" || -z "$A2A_JWT_AUDIENCE" ]]; then
     echo "JWT mode requires both A2A_JWT_ISSUER and A2A_JWT_AUDIENCE" >&2
     exit 1
+  fi
+  jwt_algorithm_upper="${A2A_JWT_ALGORITHM^^}"
+  case "$jwt_algorithm_upper" in
+    RS256|RS384|RS512|PS256|PS384|PS512|ES256|ES384|ES512|EDDSA) ;;
+    *)
+      echo "A2A_JWT_ALGORITHM must be one of RS256/RS384/RS512/PS256/PS384/PS512/ES256/ES384/ES512/EdDSA" >&2
+      exit 1
+      ;;
+  esac
+  if [[ "$jwt_algorithm_upper" == "EDDSA" ]]; then
+    A2A_JWT_ALGORITHM="EdDSA"
+  else
+    A2A_JWT_ALGORITHM="$jwt_algorithm_upper"
   fi
   if [[ "${A2A_JWT_SCOPE_MATCH,,}" != "any" && "${A2A_JWT_SCOPE_MATCH,,}" != "all" ]]; then
     echo "A2A_JWT_SCOPE_MATCH must be any or all" >&2

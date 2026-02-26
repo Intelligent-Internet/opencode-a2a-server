@@ -81,7 +81,8 @@ For deployment and operations scripts, see [`scripts/README.md`](scripts/README.
   - `A2A_AUTH_MODE=bearer` (default): requires `A2A_BEARER_TOKEN`
   - `A2A_AUTH_MODE=jwt`: requires JWT key (`A2A_JWT_SECRET` or
     `A2A_JWT_SECRET_B64` or `A2A_JWT_SECRET_FILE`) plus
-    `A2A_JWT_ISSUER` and `A2A_JWT_AUDIENCE`
+    `A2A_JWT_ISSUER` and `A2A_JWT_AUDIENCE`; `A2A_JWT_ALGORITHM` must be
+    asymmetric (`RS*`/`PS*`/`ES*`/`EdDSA`)
 - LLM provider keys are consumed by the OpenCode process. This model is best suited for trusted/internal environments unless stronger credential isolation is introduced.
 - Within one service instance, consumers share the same underlying OpenCode workspace/environment (not tenant-isolated by default).
 

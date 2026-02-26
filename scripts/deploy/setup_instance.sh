@@ -34,6 +34,24 @@ else
     echo "JWT mode requires one of A2A_JWT_SECRET/A2A_JWT_SECRET_B64/A2A_JWT_SECRET_FILE" >&2
     exit 1
   fi
+  jwt_algorithm_upper="${A2A_JWT_ALGORITHM:-RS256}"
+  jwt_algorithm_upper="${jwt_algorithm_upper^^}"
+  case "$jwt_algorithm_upper" in
+    RS256|RS384|RS512|PS256|PS384|PS512|ES256|ES384|ES512|EDDSA) ;;
+    *)
+      echo "A2A_JWT_ALGORITHM must be one of RS256/RS384/RS512/PS256/PS384/PS512/ES256/ES384/ES512/EdDSA" >&2
+      exit 1
+      ;;
+  esac
+  if [[ "$jwt_algorithm_upper" == "EDDSA" ]]; then
+    A2A_JWT_ALGORITHM="EdDSA"
+  else
+    A2A_JWT_ALGORITHM="$jwt_algorithm_upper"
+  fi
+  if [[ -n "${A2A_JWT_SECRET:-}" && "${A2A_JWT_SECRET}" == *"PRIVATE KEY"* ]]; then
+    echo "A2A_JWT_SECRET must be a public verification key, not a private key" >&2
+    exit 1
+  fi
   : "${A2A_JWT_ISSUER:?A2A_JWT_ISSUER is required when A2A_AUTH_MODE=jwt}"
   : "${A2A_JWT_AUDIENCE:?A2A_JWT_AUDIENCE is required when A2A_AUTH_MODE=jwt}"
 fi
@@ -227,7 +245,7 @@ a2a_env_tmp="$(mktemp)"
     else
       echo "A2A_JWT_SECRET=${A2A_JWT_SECRET}"
     fi
-    echo "A2A_JWT_ALGORITHM=${A2A_JWT_ALGORITHM:-HS256}"
+    echo "A2A_JWT_ALGORITHM=${A2A_JWT_ALGORITHM:-RS256}"
     echo "A2A_JWT_ISSUER=${A2A_JWT_ISSUER}"
     echo "A2A_JWT_AUDIENCE=${A2A_JWT_AUDIENCE}"
     if [[ -n "${A2A_REQUIRED_SCOPES:-}" ]]; then

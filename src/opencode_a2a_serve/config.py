@@ -4,10 +4,23 @@ import base64
 from pathlib import Path
 from typing import Any, cast
 
+from jwt import algorithms
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _AUTH_MODES = {"bearer", "jwt"}
+_ASYMMETRIC_JWT_ALGORITHMS = {
+    "RS256",
+    "RS384",
+    "RS512",
+    "PS256",
+    "PS384",
+    "PS512",
+    "ES256",
+    "ES384",
+    "ES512",
+    "EdDSA",
+}
 
 
 class Settings(BaseSettings):
@@ -55,7 +68,7 @@ class Settings(BaseSettings):
     a2a_jwt_secret: str | None = Field(default=None, alias="A2A_JWT_SECRET")
     a2a_jwt_secret_b64: str | None = Field(default=None, alias="A2A_JWT_SECRET_B64")
     a2a_jwt_secret_file: str | None = Field(default=None, alias="A2A_JWT_SECRET_FILE")
-    a2a_jwt_algorithm: str = Field(default="HS256", alias="A2A_JWT_ALGORITHM")
+    a2a_jwt_algorithm: str = Field(default="RS256", alias="A2A_JWT_ALGORITHM")
     a2a_jwt_issuer: str | None = Field(default=None, alias="A2A_JWT_ISSUER")
     a2a_jwt_audience: str | None = Field(default=None, alias="A2A_JWT_AUDIENCE")
     a2a_required_scopes: set[str] = Field(default_factory=set, alias="A2A_REQUIRED_SCOPES")
@@ -109,6 +122,16 @@ class Settings(BaseSettings):
             return "any"
         return v.strip().lower()
 
+    @field_validator("a2a_jwt_algorithm", mode="before")
+    @classmethod
+    def normalize_jwt_algorithm(cls, v: Any) -> str:
+        if not isinstance(v, str) or not v.strip():
+            return "RS256"
+        normalized = v.strip()
+        if normalized.lower() == "eddsa":
+            return "EdDSA"
+        return normalized.upper()
+
     @field_validator("a2a_required_scopes", mode="before")
     @classmethod
     def parse_required_scopes(cls, v: Any) -> set[str]:
@@ -128,6 +151,12 @@ class Settings(BaseSettings):
             if not self.a2a_bearer_token:
                 raise ValueError("A2A_BEARER_TOKEN is required when A2A_AUTH_MODE=bearer")
             return self
+
+        if self.a2a_jwt_algorithm not in _ASYMMETRIC_JWT_ALGORITHMS:
+            raise ValueError(
+                "A2A_JWT_ALGORITHM must be one of RS256/RS384/RS512/PS256/PS384/PS512/"
+                "ES256/ES384/ES512/EdDSA"
+            )
 
         if self.a2a_jwt_scope_match not in {"any", "all"}:
             raise ValueError("A2A_JWT_SCOPE_MATCH must be 'any' or 'all'")
@@ -149,6 +178,20 @@ class Settings(BaseSettings):
             raise ValueError(
                 "JWT mode requires one of A2A_JWT_SECRET/A2A_JWT_SECRET_B64/A2A_JWT_SECRET_FILE"
             )
+        available_algorithms = algorithms.get_default_algorithms()
+        if self.a2a_jwt_algorithm not in available_algorithms:
+            raise ValueError(
+                f"A2A_JWT_ALGORITHM {self.a2a_jwt_algorithm} is not supported by current runtime"
+            )
+
+        if "PRIVATE KEY" in self.a2a_jwt_secret:
+            raise ValueError("A2A_JWT_SECRET must be a public verification key, not a private key")
+        try:
+            available_algorithms[self.a2a_jwt_algorithm].prepare_key(self.a2a_jwt_secret)
+        except Exception as exc:
+            raise ValueError(
+                f"A2A_JWT_SECRET is not a valid verification key for {self.a2a_jwt_algorithm}"
+            ) from exc
         if not self.a2a_jwt_issuer:
             raise ValueError("JWT mode requires A2A_JWT_ISSUER")
         if not self.a2a_jwt_audience:

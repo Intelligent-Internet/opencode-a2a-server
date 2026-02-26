@@ -28,7 +28,7 @@ Key variables to understand protocol behavior:
 - `A2A_BEARER_TOKEN`: required when `A2A_AUTH_MODE=bearer`.
 - `A2A_JWT_SECRET` / `A2A_JWT_SECRET_B64` / `A2A_JWT_SECRET_FILE`: JWT
   verification key sources when `A2A_AUTH_MODE=jwt`.
-- `A2A_JWT_ALGORITHM`: JWT algorithm for verification in JWT mode.
+- `A2A_JWT_ALGORITHM`: JWT algorithm for verification in JWT mode. Must be asymmetric (`RS*`/`PS*`/`ES*`/`EdDSA`).
 - `A2A_JWT_ISSUER` / `A2A_JWT_AUDIENCE`: required JWT claim checks in JWT mode.
 - `A2A_REQUIRED_SCOPES`: optional comma-separated scopes required in JWT mode.
 - `A2A_JWT_SCOPE_MATCH`: `any`/`all` strategy for required-scope matching.
