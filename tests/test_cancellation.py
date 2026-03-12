@@ -23,6 +23,7 @@ async def test_cancel_interrupts_running_execute_and_keeps_queue_open(caplog):
         _text,
         *,
         directory=None,  # noqa: ARG001
+        model_override=None,  # noqa: ARG001
         timeout_override=None,  # noqa: ARG001
     ):
         send_started.set()
@@ -115,6 +116,7 @@ async def test_cancel_keeps_canceled_status_when_abort_session_fails() -> None:
         _text,
         *,
         directory=None,  # noqa: ARG001
+        model_override=None,  # noqa: ARG001
         timeout_override=None,  # noqa: ARG001
     ):
         send_started.set()
@@ -182,6 +184,7 @@ async def test_cancel_remains_responsive_when_abort_session_hangs(caplog) -> Non
         _text,
         *,
         directory=None,  # noqa: ARG001
+        model_override=None,  # noqa: ARG001
         timeout_override=None,  # noqa: ARG001
     ):
         send_started.set()

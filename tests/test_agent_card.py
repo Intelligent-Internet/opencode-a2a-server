@@ -1,5 +1,7 @@
 from opencode_a2a_serve.app import (
     INTERRUPT_CALLBACK_EXTENSION_URI,
+    MODEL_SELECTION_EXTENSION_URI,
+    PROVIDER_DISCOVERY_EXTENSION_URI,
     SESSION_BINDING_EXTENSION_URI,
     SESSION_QUERY_EXTENSION_URI,
     STREAMING_EXTENSION_URI,
@@ -54,6 +56,16 @@ def test_agent_card_injects_deployment_context_into_extensions() -> None:
     assert binding.params["directory_override_enabled"] is False
     assert binding.params["shared_workspace_across_consumers"] is True
     assert binding.params["tenant_isolation"] == "none"
+
+    model_selection = ext_by_uri[MODEL_SELECTION_EXTENSION_URI]
+    assert model_selection.params["metadata_field"] == "metadata.shared.model"
+    assert model_selection.params["fields"]["providerID"] == "metadata.shared.model.providerID"
+    assert model_selection.params["fields"]["modelID"] == "metadata.shared.model.modelID"
+    assert model_selection.params["default_model"] == {
+        "providerID": "google",
+        "modelID": "gemini-2.5-flash",
+    }
+    assert model_selection.params["applies_to_methods"] == ["message/send", "message/stream"]
 
     streaming = ext_by_uri[STREAMING_EXTENSION_URI]
     assert streaming.params["artifact_metadata_field"] == "metadata.shared.stream"
@@ -131,6 +143,21 @@ def test_agent_card_injects_deployment_context_into_extensions() -> None:
         "supported",
         "unsupported",
     ]
+
+    provider_discovery = ext_by_uri[PROVIDER_DISCOVERY_EXTENSION_URI]
+    assert provider_discovery.params["deployment_context"]["project"] == "alpha"
+    assert provider_discovery.params["methods"] == {
+        "list_providers": "opencode.providers.list",
+        "list_models": "opencode.models.list",
+    }
+    assert provider_discovery.params["method_contracts"]["opencode.models.list"]["params"] == {
+        "optional": ["provider_id"]
+    }
+    assert provider_discovery.params["errors"]["business_codes"] == {
+        "UPSTREAM_UNREACHABLE": -32002,
+        "UPSTREAM_HTTP_ERROR": -32003,
+        "UPSTREAM_PAYLOAD_ERROR": -32005,
+    }
 
     interrupt = ext_by_uri[INTERRUPT_CALLBACK_EXTENSION_URI]
     assert interrupt.params["deployment_context"]["project"] == "alpha"

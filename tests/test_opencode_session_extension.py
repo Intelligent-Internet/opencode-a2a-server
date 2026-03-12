@@ -121,6 +121,127 @@ async def test_session_query_extension_returns_jsonrpc_result(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_provider_discovery_extension_returns_normalized_catalog(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(
+            a2a_bearer_token="t-1",
+            a2a_log_payloads=False,
+            opencode_directory="/workspace",
+            **_BASE_SETTINGS,
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        providers_resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "opencode.providers.list",
+                "params": {},
+            },
+        )
+        assert providers_resp.status_code == 200
+        providers_payload = providers_resp.json()["result"]
+        assert providers_payload["default_by_provider"]["openai"] == "gpt-5"
+        assert providers_payload["connected"] == ["openai"]
+        assert providers_payload["items"][0]["provider_id"] == "openai"
+        assert providers_payload["items"][0]["default_model_id"] == "gpt-5"
+
+        models_resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "opencode.models.list",
+                "params": {"provider_id": "google"},
+            },
+        )
+        assert models_resp.status_code == 200
+        models_payload = models_resp.json()["result"]
+        assert len(models_payload["items"]) == 1
+        assert models_payload["items"][0]["provider_id"] == "google"
+        assert models_payload["items"][0]["model_id"] == "gemini-2.5-flash"
+        assert models_payload["items"][0]["supports_attachments"] is True
+
+
+@pytest.mark.asyncio
+async def test_provider_discovery_extension_rejects_invalid_provider_id(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "opencode.models.list",
+                "params": {"provider_id": 123},
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32602
+        assert payload["error"]["data"]["field"] == "provider_id"
+
+
+@pytest.mark.asyncio
+async def test_provider_discovery_extension_maps_payload_mismatch(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    dummy.provider_catalog_payload = {"all": "bad", "default": {}, "connected": []}
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 14,
+                "method": "opencode.providers.list",
+                "params": {},
+            },
+        )
+        payload = resp.json()
+        assert payload["error"]["code"] == -32005
+        assert payload["error"]["data"]["type"] == "UPSTREAM_PAYLOAD_ERROR"
+
+
+@pytest.mark.asyncio
 async def test_session_query_extension_rejects_non_array_upstream_payload(monkeypatch):
     import opencode_a2a_serve.app as app_module
 
@@ -1042,6 +1163,49 @@ async def test_session_command_extension_success(monkeypatch):
         assert len(dummy.command_calls) == 1
         assert dummy.command_calls[0]["session_id"] == "s-1"
         assert dummy.command_calls[0]["directory"] == "/workspace"
+
+
+@pytest.mark.asyncio
+async def test_session_command_extension_accepts_request_model(monkeypatch):
+    import opencode_a2a_serve.app as app_module
+
+    dummy = DummyOpencodeClient(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+    monkeypatch.setattr(app_module, "OpencodeClient", lambda _settings: dummy)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="t-1", a2a_log_payloads=False, **_BASE_SETTINGS)
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        headers = {"Authorization": "Bearer t-1"}
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json={
+                "jsonrpc": "2.0",
+                "id": 3201,
+                "method": "opencode.sessions.command",
+                "params": {
+                    "session_id": "s-1",
+                    "request": {
+                        "command": "/review",
+                        "arguments": "security",
+                        "model": {
+                            "providerID": "openai",
+                            "modelID": "gpt-5",
+                        },
+                    },
+                },
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json().get("error") is None
+        assert dummy.command_calls[0]["request"]["model"] == {
+            "providerID": "openai",
+            "modelID": "gpt-5",
+        }
 
 
 @pytest.mark.asyncio

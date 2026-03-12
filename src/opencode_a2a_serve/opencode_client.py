@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -176,6 +176,23 @@ class OpencodeClient:
             params[key] = value if isinstance(value, str) else str(value)
         return params
 
+    @staticmethod
+    def _normalize_model_ref(value: Mapping[str, Any] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        provider = value.get("providerID")
+        model = value.get("modelID")
+        if not isinstance(provider, str) or not isinstance(model, str):
+            return None
+        provider_id = provider.strip()
+        model_id = model.strip()
+        if not provider_id or not model_id:
+            return None
+        return {
+            "providerID": provider_id,
+            "modelID": model_id,
+        }
+
     async def stream_events(
         self, stop_event: asyncio.Event | None = None, *, directory: str | None = None
     ) -> AsyncIterator[dict[str, Any]]:
@@ -303,12 +320,20 @@ class OpencodeClient:
         response.raise_for_status()
         return response.json()
 
+    async def list_provider_catalog(self, *, directory: str | None = None) -> Any:
+        response = await self._client.get(
+            "/provider", params=self._query_params(directory=directory)
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def send_message(
         self,
         session_id: str,
         text: str,
         *,
         directory: str | None = None,
+        model_override: Mapping[str, Any] | None = None,
         timeout_override: float | None | object = _UNSET,
     ) -> OpencodeMessage:
         payload: dict[str, Any] = {
@@ -319,11 +344,16 @@ class OpencodeClient:
                 }
             ]
         }
-        if self._provider_id and self._model_id:
-            payload["model"] = {
-                "providerID": self._provider_id,
-                "modelID": self._model_id,
-            }
+        resolved_model = self._normalize_model_ref(model_override)
+        if resolved_model is None:
+            resolved_model = self._normalize_model_ref(
+                {
+                    "providerID": self._provider_id,
+                    "modelID": self._model_id,
+                }
+            )
+        if resolved_model is not None:
+            payload["model"] = resolved_model
         if self._agent:
             payload["agent"] = self._agent
         if self._system:

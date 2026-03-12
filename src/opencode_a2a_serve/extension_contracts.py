@@ -6,6 +6,7 @@ from typing import Any
 SHARED_METADATA_NAMESPACE = "shared"
 SHARED_SESSION_BINDING_FIELD = "metadata.shared.session.id"
 SHARED_SESSION_METADATA_FIELD = "metadata.shared.session"
+SHARED_MODEL_SELECTION_FIELD = "metadata.shared.model"
 SHARED_STREAM_METADATA_FIELD = "metadata.shared.stream"
 SHARED_INTERRUPT_METADATA_FIELD = "metadata.shared.interrupt"
 SHARED_USAGE_METADATA_FIELD = "metadata.shared.usage"
@@ -30,6 +31,17 @@ class InterruptMethodContract:
     method: str
     required_params: tuple[str, ...] = ()
     optional_params: tuple[str, ...] = ()
+    notification_response_status: int | None = None
+
+
+@dataclass(frozen=True)
+class ProviderDiscoveryMethodContract:
+    method: str
+    required_params: tuple[str, ...] = ()
+    optional_params: tuple[str, ...] = ()
+    result_fields: tuple[str, ...] = ()
+    items_type: str | None = None
+    items_field: str | None = None
     notification_response_status: int | None = None
 
 
@@ -193,6 +205,28 @@ INTERRUPT_CALLBACK_METHODS: dict[str, str] = {
     key: contract.method for key, contract in INTERRUPT_CALLBACK_METHOD_CONTRACTS.items()
 }
 
+PROVIDER_DISCOVERY_METHOD_CONTRACTS: dict[str, ProviderDiscoveryMethodContract] = {
+    "list_providers": ProviderDiscoveryMethodContract(
+        method="opencode.providers.list",
+        result_fields=("items", "default_by_provider", "connected"),
+        items_type="ProviderSummary[]",
+        items_field="items",
+        notification_response_status=204,
+    ),
+    "list_models": ProviderDiscoveryMethodContract(
+        method="opencode.models.list",
+        optional_params=("provider_id",),
+        result_fields=("items", "default_by_provider", "connected"),
+        items_type="ModelSummary[]",
+        items_field="items",
+        notification_response_status=204,
+    ),
+}
+
+PROVIDER_DISCOVERY_METHODS: dict[str, str] = {
+    key: contract.method for key, contract in PROVIDER_DISCOVERY_METHOD_CONTRACTS.items()
+}
+
 INTERRUPT_SUCCESS_RESULT_FIELDS: tuple[str, ...] = ("ok", "request_id")
 INTERRUPT_ERROR_BUSINESS_CODES: dict[str, int] = {
     "INTERRUPT_REQUEST_NOT_FOUND": -32004,
@@ -214,6 +248,22 @@ INTERRUPT_INVALID_PARAMS_DATA_FIELDS: tuple[str, ...] = (
     "request_id",
     "expected",
     "actual",
+)
+PROVIDER_DISCOVERY_ERROR_BUSINESS_CODES: dict[str, int] = {
+    "UPSTREAM_UNREACHABLE": -32002,
+    "UPSTREAM_HTTP_ERROR": -32003,
+    "UPSTREAM_PAYLOAD_ERROR": -32005,
+}
+PROVIDER_DISCOVERY_ERROR_DATA_FIELDS: tuple[str, ...] = (
+    "type",
+    "method",
+    "upstream_status",
+    "detail",
+)
+PROVIDER_DISCOVERY_INVALID_PARAMS_DATA_FIELDS: tuple[str, ...] = (
+    "type",
+    "field",
+    "fields",
 )
 
 
@@ -261,6 +311,48 @@ def build_session_binding_extension_params(
             ),
         ],
     }
+
+
+def build_model_selection_extension_params(
+    *,
+    deployment_context: dict[str, str | bool],
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "metadata_field": SHARED_MODEL_SELECTION_FIELD,
+        "behavior": "prefer_metadata_model_else_server_default",
+        "applies_to_methods": ["message/send", "message/stream"],
+        "supported_metadata": [
+            "shared.model.providerID",
+            "shared.model.modelID",
+        ],
+        "provider_private_metadata": [],
+        "shared_workspace_across_consumers": True,
+        "tenant_isolation": "none",
+        "deployment_context": deployment_context,
+        "fields": {
+            "providerID": f"{SHARED_MODEL_SELECTION_FIELD}.providerID",
+            "modelID": f"{SHARED_MODEL_SELECTION_FIELD}.modelID",
+        },
+        "notes": [
+            (
+                "If both metadata.shared.model.providerID and metadata.shared.model.modelID "
+                "are non-empty strings, the server will override the default upstream model "
+                "for this request only."
+            ),
+            (
+                "If shared model metadata is missing, partial, or invalid, the server falls "
+                "back to the configured default model."
+            ),
+        ],
+    }
+    provider_id = deployment_context.get("provider_id")
+    model_id = deployment_context.get("model_id")
+    if isinstance(provider_id, str) and isinstance(model_id, str):
+        params["default_model"] = {
+            "providerID": provider_id,
+            "modelID": model_id,
+        }
+    return params
 
 
 def build_streaming_extension_params() -> dict[str, Any]:
@@ -412,4 +504,88 @@ def build_interrupt_callback_extension_params(
         "shared_workspace_across_consumers": True,
         "tenant_isolation": "none",
         "deployment_context": deployment_context,
+    }
+
+
+def build_provider_discovery_extension_params(
+    *,
+    deployment_context: dict[str, str | bool],
+) -> dict[str, Any]:
+    method_contracts: dict[str, Any] = {}
+    result_envelope_by_method: dict[str, Any] = {}
+
+    for method_contract in PROVIDER_DISCOVERY_METHOD_CONTRACTS.values():
+        params_contract = _build_method_contract_params(
+            required=method_contract.required_params,
+            optional=method_contract.optional_params,
+            unsupported=(),
+        )
+        result_contract: dict[str, Any] = {"fields": list(method_contract.result_fields)}
+        if method_contract.items_type:
+            result_contract["items_type"] = method_contract.items_type
+
+        contract_doc: dict[str, Any] = {
+            "params": params_contract,
+            "result": result_contract,
+        }
+        if method_contract.notification_response_status is not None:
+            contract_doc["notification_response_status"] = (
+                method_contract.notification_response_status
+            )
+        method_contracts[method_contract.method] = contract_doc
+
+        envelope_doc: dict[str, Any] = {"fields": list(method_contract.result_fields)}
+        if method_contract.items_field:
+            envelope_doc["items_field"] = method_contract.items_field
+        result_envelope_by_method[method_contract.method] = envelope_doc
+
+    return {
+        "methods": dict(PROVIDER_DISCOVERY_METHODS),
+        "method_contracts": method_contracts,
+        "result_envelope": {
+            "by_method": result_envelope_by_method,
+        },
+        "supported_metadata": ["opencode.directory"],
+        "provider_private_metadata": ["opencode.directory"],
+        "context_fields": {
+            "directory": OPENCODE_DIRECTORY_METADATA_FIELD,
+        },
+        "provider_item_fields": {
+            "provider_id": "items[].provider_id",
+            "name": "items[].name",
+            "source": "items[].source",
+            "connected": "items[].connected",
+            "default_model_id": "items[].default_model_id",
+            "model_count": "items[].model_count",
+        },
+        "model_item_fields": {
+            "provider_id": "items[].provider_id",
+            "model_id": "items[].model_id",
+            "name": "items[].name",
+            "status": "items[].status",
+            "context_window": "items[].context_window",
+            "supports_reasoning": "items[].supports_reasoning",
+            "supports_tool_call": "items[].supports_tool_call",
+            "supports_attachments": "items[].supports_attachments",
+            "default": "items[].default",
+            "connected": "items[].connected",
+        },
+        "errors": {
+            "business_codes": dict(PROVIDER_DISCOVERY_ERROR_BUSINESS_CODES),
+            "error_data_fields": list(PROVIDER_DISCOVERY_ERROR_DATA_FIELDS),
+            "invalid_params_data_fields": list(PROVIDER_DISCOVERY_INVALID_PARAMS_DATA_FIELDS),
+        },
+        "shared_workspace_across_consumers": True,
+        "tenant_isolation": "none",
+        "deployment_context": deployment_context,
+        "notes": [
+            (
+                "Provider/model discovery is OpenCode-specific and exposed through "
+                "provider-private JSON-RPC methods."
+            ),
+            (
+                "The server normalizes upstream provider catalogs into summary records so "
+                "downstream callers do not need to parse raw OpenCode payloads."
+            ),
+        ],
     }

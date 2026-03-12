@@ -19,7 +19,9 @@ Provide a practical adapter layer that lets individuals and small teams expose O
 - A2A JSON-RPC endpoint (`POST /`) for standard methods and OpenCode-oriented extensions.
 - Streaming with incremental task artifacts and terminal status events.
 - Session continuation via `metadata.shared.session.id`.
-- OpenCode session query/control extension methods (`opencode.sessions.*`) and shared interrupt callback methods.
+- Request-scoped model selection via `metadata.shared.model`.
+- OpenCode session query/control (`opencode.sessions.*`) and provider/model discovery (`opencode.providers.*`, `opencode.models.*`) extension methods.
+- Shared interrupt callback methods.
 
 ## Quick Start & Development
 
