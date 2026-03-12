@@ -450,6 +450,7 @@ class OpencodeAgentExecutor(AgentExecutor):
         streaming_request = self._should_stream(context)
         user_text = context.get_user_input().strip()
         bound_session_id = _extract_shared_session_id(context)
+        model_override = _extract_shared_model(context)
 
         # Directory validation
         metadata = context.metadata
@@ -560,6 +561,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                     session_id,
                     user_text,
                     directory=directory,
+                    model_override=model_override,
                     timeout_override=self._client.stream_timeout,
                 )
             else:
@@ -567,6 +569,7 @@ class OpencodeAgentExecutor(AgentExecutor):
                     session_id,
                     user_text,
                     directory=directory,
+                    model_override=model_override,
                 )
 
             if pending_preferred_claim:
@@ -1887,6 +1890,25 @@ def _extract_shared_session_id(context: RequestContext) -> str | None:
         namespace="shared",
         path=("session", "id"),
     )
+
+
+def _extract_shared_model(context: RequestContext) -> dict[str, str] | None:
+    provider_id = _extract_namespaced_string_metadata(
+        context,
+        namespace="shared",
+        path=("model", "providerID"),
+    )
+    model_id = _extract_namespaced_string_metadata(
+        context,
+        namespace="shared",
+        path=("model", "modelID"),
+    )
+    if provider_id is None or model_id is None:
+        return None
+    return {
+        "providerID": provider_id,
+        "modelID": model_id,
+    }
 
 
 def _extract_opencode_directory(context: RequestContext) -> str | None:

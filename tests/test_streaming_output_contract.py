@@ -48,9 +48,10 @@ class DummyStreamingClient:
         text: str,
         *,
         directory: str | None = None,
+        model_override: dict[str, str] | None = None,
         timeout_override=None,  # noqa: ANN001
     ) -> OpencodeMessage:
-        del text, directory, timeout_override
+        del text, directory, model_override, timeout_override
         self._in_flight_send += 1
         self.max_in_flight_send = max(self.max_in_flight_send, self._in_flight_send)
         await asyncio.sleep(self._send_delay)

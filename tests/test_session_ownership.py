@@ -128,9 +128,10 @@ async def test_concurrent_session_create_isolated_by_identity():
         _text,
         *,
         directory=None,
+        model_override=None,
         timeout_override=None,
     ):
-        del directory, timeout_override
+        del directory, model_override, timeout_override
         response = MagicMock()
         response.text = "OpenCode response"
         response.session_id = session_id
@@ -235,6 +236,7 @@ async def test_preferred_session_claim_is_released_on_upstream_failure():
         _text,
         *,
         directory=None,  # noqa: ARG001
+        model_override=None,  # noqa: ARG001
         timeout_override=None,  # noqa: ARG001
     ):
         raise RuntimeError(f"upstream failed for {session_id}")
@@ -268,6 +270,7 @@ async def test_preferred_session_claim_is_released_on_upstream_cancellation():
         _text,
         *,
         directory=None,  # noqa: ARG001
+        model_override=None,  # noqa: ARG001
         timeout_override=None,  # noqa: ARG001
     ):
         raise asyncio.CancelledError()

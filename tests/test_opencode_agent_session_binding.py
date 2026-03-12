@@ -27,6 +27,40 @@ async def test_agent_prefers_metadata_shared_session_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_passes_shared_model_override_to_upstream() -> None:
+    client = DummyChatOpencodeClient()
+    executor = OpencodeAgentExecutor(client, streaming_enabled=False)
+    q = DummyEventQueue()
+
+    ctx = make_request_context(
+        task_id="t-model",
+        context_id="c-model",
+        text="hello",
+        metadata={"shared": {"model": {"providerID": "google", "modelID": "gemini-2.5-flash"}}},
+    )
+    await executor.execute(ctx, q)
+
+    assert client.sent_model_overrides == [{"providerID": "google", "modelID": "gemini-2.5-flash"}]
+
+
+@pytest.mark.asyncio
+async def test_agent_ignores_partial_shared_model_override() -> None:
+    client = DummyChatOpencodeClient()
+    executor = OpencodeAgentExecutor(client, streaming_enabled=False)
+    q = DummyEventQueue()
+
+    ctx = make_request_context(
+        task_id="t-model-invalid",
+        context_id="c-model-invalid",
+        text="hello",
+        metadata={"shared": {"model": {"providerID": "google"}}},
+    )
+    await executor.execute(ctx, q)
+
+    assert client.sent_model_overrides == [None]
+
+
+@pytest.mark.asyncio
 async def test_agent_caches_bound_session_id_for_followup_requests() -> None:
     client = DummyChatOpencodeClient()
     executor = OpencodeAgentExecutor(
@@ -96,9 +130,10 @@ async def test_agent_uses_stable_fallback_message_id_when_upstream_missing_messa
             text: str,
             *,
             directory: str | None = None,
+            model_override: dict[str, str] | None = None,
             timeout_override=None,  # noqa: ANN001
         ) -> OpencodeMessage:
-            del text, directory, timeout_override
+            del text, directory, model_override, timeout_override
             self.sent_session_ids.append(session_id)
             return OpencodeMessage(
                 text="echo:hello",
@@ -130,9 +165,10 @@ async def test_agent_includes_usage_in_non_stream_task_metadata() -> None:
             text: str,
             *,
             directory: str | None = None,
+            model_override: dict[str, str] | None = None,
             timeout_override=None,  # noqa: ANN001
         ) -> OpencodeMessage:
-            del text, directory, timeout_override
+            del text, directory, model_override, timeout_override
             self.sent_session_ids.append(session_id)
             return OpencodeMessage(
                 text="echo:hello",

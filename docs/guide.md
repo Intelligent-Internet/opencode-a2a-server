@@ -43,6 +43,8 @@ Key variables to understand protocol behavior:
 ## Service Behavior
 
 - The service forwards A2A `message:send` to OpenCode session/message calls.
+- Main chat requests may override the default upstream model via
+  `metadata.shared.model` with `{ providerID, modelID }`.
 - Task state defaults to `completed` for successful turns.
 - Streaming (`/v1/message:stream`) emits incremental
   `TaskArtifactUpdateEvent` and then
@@ -128,18 +130,62 @@ curl -sS http://127.0.0.1:8000/v1/message:send \
   }'
 ```
 
-## OpenCode Session Query (A2A Extension)
+## Shared Model Selection Contract
 
-This service exposes OpenCode session list/message-history queries and session control methods via A2A JSON-RPC extension methods (default endpoint: `POST /`). No extra custom REST endpoint is introduced.
+To override the default upstream model for one main-chat request, include:
+
+- `metadata.shared.model.providerID`
+- `metadata.shared.model.modelID`
+
+Server behavior:
+
+- If both fields are non-empty strings, the request is sent with that upstream
+  model override.
+- If the object is missing, partial, or invalid, the service falls back to the
+  configured default model (`OPENCODE_PROVIDER_ID` / `OPENCODE_MODEL_ID`).
+- This contract applies to the main chat path only (`message/send`,
+  `message:stream`). OpenCode session-control methods continue to use
+  `params.request.model`.
+
+Minimal example:
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/message:send \
+  -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <your-token>' \
+  -d '{
+    "message": {
+      "messageId": "msg-model-1",
+      "role": "ROLE_USER",
+      "content": [{"text": "Answer with the faster model."}]
+    },
+    "metadata": {
+      "shared": {
+        "model": {
+          "providerID": "google",
+          "modelID": "gemini-2.5-flash"
+        }
+      }
+    }
+  }'
+```
+
+## OpenCode Session Query & Provider Discovery (A2A Extensions)
+
+This service exposes OpenCode session list/message-history queries, session
+control methods, and provider/model discovery via A2A JSON-RPC extension
+methods (default endpoint: `POST /`). No extra custom REST endpoint is
+introduced.
 
 - Trigger: call extension methods through A2A JSON-RPC
 - Auth: same `Authorization: Bearer <token>`
 - Privacy guard: when `A2A_LOG_PAYLOADS=true`, request/response bodies are still
-  suppressed for `method=opencode.sessions.*`
+  suppressed for `method=opencode.sessions.*`, `opencode.providers.*`, and
+  `opencode.models.*`
 - Endpoint discovery: prefer `additional_interfaces[]` with
   `transport=jsonrpc` from Agent Card
-- Notification behavior: for `opencode.sessions.*`, requests without `id`
-  return HTTP `204 No Content`
+- Notification behavior: for `opencode.sessions.*`, `opencode.providers.*`, and
+  `opencode.models.*`, requests without `id` return HTTP `204 No Content`
 - Result format (query methods):
   - `result.items` is always an array of A2A standard objects
   - session list => `Task` with `status.state=completed`
@@ -194,6 +240,10 @@ curl -sS http://127.0.0.1:8000/ \
       "session_id": "<session_id>",
       "request": {
         "parts": [{"type": "text", "text": "Continue and summarize next steps."}],
+        "model": {
+          "providerID": "google",
+          "modelID": "gemini-2.5-flash"
+        },
         "noReply": true
       },
       "metadata": {
@@ -221,6 +271,8 @@ Validation notes:
 
 - `metadata.opencode.directory` follows the same normalization and boundary rules
   as message send (`realpath` + workspace boundary check).
+- `request.model` uses the same `{ providerID, modelID }` shape as
+  `metadata.shared.model`, but is scoped to OpenCode session-control methods.
 - Control methods enforce session owner guard based on request identity.
 
 ### Session Command (`opencode.sessions.command`)
@@ -237,7 +289,11 @@ curl -sS http://127.0.0.1:8000/ \
       "session_id": "<session_id>",
       "request": {
         "command": "/review",
-        "arguments": "focus on security findings"
+        "arguments": "focus on security findings",
+        "model": {
+          "providerID": "openai",
+          "modelID": "gpt-5"
+        }
       },
       "metadata": {
         "opencode": {
@@ -283,6 +339,51 @@ curl -sS http://127.0.0.1:8000/ \
     }
   }'
 ```
+
+### Provider List (`opencode.providers.list`)
+
+Returns normalized provider summaries from the upstream OpenCode provider
+catalog.
+
+```bash
+curl -sS http://127.0.0.1:8000/ \
+  -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <your-token>' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 24,
+    "method": "opencode.providers.list",
+    "params": {}
+  }'
+```
+
+Response:
+
+- success => `{"items": [...], "default_by_provider": {...}, "connected": [...]}` (JSON-RPC result)
+
+### Model List (`opencode.models.list`)
+
+Returns normalized, flattened model summaries. Supports optional provider filter:
+
+- `params.provider_id`
+
+```bash
+curl -sS http://127.0.0.1:8000/ \
+  -H 'content-type: application/json' \
+  -H 'Authorization: Bearer <your-token>' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 25,
+    "method": "opencode.models.list",
+    "params": {
+      "provider_id": "openai"
+    }
+  }'
+```
+
+Response:
+
+- success => `{"items": [...], "default_by_provider": {...}, "connected": [...]}` (JSON-RPC result)
 
 Response:
 
