@@ -83,7 +83,8 @@ class _StreamOutputState:
     sequence: int = 0
 
     def matches_expected_message(self, message_id: str | None) -> bool:
-        return bool(message_id)
+        del message_id
+        return True
 
     def should_drop_initial_user_echo(
         self,

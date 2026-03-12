@@ -347,14 +347,14 @@ async def test_execute_serializes_send_message_per_session() -> None:
 
 
 @pytest.mark.asyncio
-async def test_streaming_drops_events_without_message_id_and_falls_back_to_snapshot() -> None:
+async def test_streaming_emits_events_without_message_id_using_stable_fallback() -> None:
     client = DummyStreamingClient(
         stream_events_payload=[
             _event(
                 session_id="ses-1",
                 role="assistant",
                 part_type="text",
-                delta="stream chunk without id",
+                delta="final answer from send_message",
                 message_id=None,
             ),
         ],
@@ -373,7 +373,7 @@ async def test_streaming_drops_events_without_message_id_and_falls_back_to_snaps
     assert len(updates) == 1
     update = updates[0]
     assert _part_text(update) == "final answer from send_message"
-    assert update.artifact.metadata["opencode"]["source"] == "final_snapshot"
+    assert update.artifact.metadata["opencode"]["source"] == "delta"
     assert update.artifact.metadata["opencode"]["block_type"] == "text"
     assert update.artifact.metadata["opencode"]["message_id"] == "task-6:ctx-6:assistant"
     assert update.artifact.metadata["opencode"]["event_id"] == "task-6:ctx-6:task-6:stream:1"
