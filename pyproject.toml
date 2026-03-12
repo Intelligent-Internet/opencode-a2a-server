@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "OpenCode A2A Serve Maintainers" },
+    { name = "liujuanjuan1984@Intelligent-Internet" },
 ]
 keywords = ["a2a", "opencode", "fastapi", "json-rpc", "sse"]
 classifiers = [
