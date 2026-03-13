@@ -995,6 +995,48 @@ def create_app(settings: Settings) -> FastAPI:
         return body, token
 
     @app.middleware("http")
+    async def enforce_request_body_limit(request: Request, call_next):
+        token: Token | None = None
+        limit = settings.a2a_max_request_body_bytes
+        if limit <= 0 or request.method not in {"POST", "PUT", "PATCH"}:
+            return await call_next(request)
+
+        try:
+            path = request.url.path
+            content_length = _parse_content_length(request.headers.get("content-length"))
+            if content_length is not None and content_length > limit:
+                reason = "content-length=%s exceeds max_request_body_bytes=%s"
+                logger.warning(
+                    "A2A request %s %s rejected: " + reason,
+                    request.method,
+                    path,
+                    content_length,
+                    limit,
+                )
+                return JSONResponse(
+                    {"error": "Request body too large", "max_bytes": limit},
+                    status_code=413,
+                )
+
+            body, token = await _get_request_body(request)
+            if len(body) > limit:
+                logger.warning(
+                    "A2A request %s %s rejected: body_size=%s exceeds max_request_body_bytes=%s",
+                    request.method,
+                    path,
+                    len(body),
+                    limit,
+                )
+                return JSONResponse(
+                    {"error": "Request body too large", "max_bytes": limit},
+                    status_code=413,
+                )
+            return await call_next(request)
+        finally:
+            if token is not None:
+                _REQUEST_BODY_BYTES.reset(token)
+
+    @app.middleware("http")
     async def guard_rest_payload_shape(request: Request, call_next):
         token: Token | None = None
         if request.method != "POST" or request.url.path not in {

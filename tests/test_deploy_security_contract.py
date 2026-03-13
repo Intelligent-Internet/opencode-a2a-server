@@ -37,6 +37,15 @@ def test_setup_instance_generates_examples_and_requires_runtime_secret_files() -
     assert required_a2a_secret in SETUP_INSTANCE_TEXT
     assert secret_persistence_notice in SETUP_INSTANCE_TEXT
     assert "Value for ${key} contains a newline or carriage return" in SETUP_INSTANCE_TEXT
+    assert ': "${A2A_MAX_REQUEST_BODY_BYTES:=1048576}"' in SETUP_INSTANCE_TEXT
+    assert ': "${A2A_STRICT_ISOLATION:=false}"' in SETUP_INSTANCE_TEXT
+    assert "TemporaryFileSystem=${DATA_ROOT}:ro" in SETUP_INSTANCE_TEXT
+    assert "BindPaths=${PROJECT_DIR}:${PROJECT_DIR}" in SETUP_INSTANCE_TEXT
+    request_limit_line = (
+        'append_env_line "$a2a_env_tmp" "A2A_MAX_REQUEST_BODY_BYTES" '
+        '"${A2A_MAX_REQUEST_BODY_BYTES}"'
+    )
+    assert request_limit_line in SETUP_INSTANCE_TEXT
 
 
 def test_security_docs_emphasize_single_tenant_boundary_and_secret_strategy() -> None:
@@ -49,3 +58,20 @@ def test_security_docs_emphasize_single_tenant_boundary_and_secret_strategy() ->
     assert "ENABLE_SECRET_PERSISTENCE=false" in DEPLOY_README_TEXT
     assert "opencode.auth.env" in DEPLOY_README_TEXT
     assert "a2a.secret.env" in DEPLOY_README_TEXT
+
+
+def test_uninstall_removes_instance_systemd_overrides() -> None:
+    uninstall_text = Path("scripts/uninstall.sh").read_text()
+    opencode_override_dir = (
+        'OPENCODE_OVERRIDE_DIR="/etc/systemd/system/opencode@${PROJECT_NAME}.service.d"'
+    )
+    remove_override_cmd = (
+        'run_ignore sudo rm -rf -- "${A2A_OVERRIDE_DIR}" "${OPENCODE_OVERRIDE_DIR}"'
+    )
+    assert opencode_override_dir in uninstall_text
+    assert (
+        'A2A_OVERRIDE_DIR="/etc/systemd/system/opencode-a2a-server@${PROJECT_NAME}.service.d"'
+        in uninstall_text
+    )
+    assert remove_override_cmd in uninstall_text
+    assert "run_ignore sudo systemctl daemon-reload" in uninstall_text

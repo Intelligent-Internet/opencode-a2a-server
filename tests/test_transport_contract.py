@@ -372,6 +372,60 @@ async def test_log_payloads_omits_oversized_request_body(monkeypatch, caplog) ->
     assert oversized_text not in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_request_body_limit_rejects_oversized_content_length(monkeypatch) -> None:
+    import opencode_a2a_server.app as app_module
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="test-token", a2a_max_request_body_bytes=64)
+    )
+    transport = httpx.ASGITransport(app=app)
+    headers = {"Authorization": "Bearer test-token"}
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/",
+            headers=headers,
+            json=_jsonrpc_message_send_payload("x" * 512),
+        )
+
+    assert resp.status_code == 413
+    assert resp.json() == {"error": "Request body too large", "max_bytes": 64}
+
+
+@pytest.mark.asyncio
+async def test_request_body_limit_rejects_oversized_stream_without_content_length(
+    monkeypatch,
+) -> None:
+    import opencode_a2a_server.app as app_module
+
+    monkeypatch.setattr(app_module, "OpencodeClient", DummyChatOpencodeClient)
+    app = app_module.create_app(
+        make_settings(a2a_bearer_token="test-token", a2a_max_request_body_bytes=64)
+    )
+    transport = httpx.ASGITransport(app=app)
+    headers = {
+        "Authorization": "Bearer test-token",
+        "Content-Type": "application/json",
+    }
+    body = (
+        b'{"jsonrpc":"2.0","id":1,"method":"message/send","params":{"message":'
+        b'{"messageId":"m","role":"user","parts":[{"kind":"text","text":"'
+        + (b"x" * 128)
+        + b'"}]}}}'
+    )
+
+    async def _body_stream():
+        yield body
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/", headers=headers, content=_body_stream())
+
+    assert resp.status_code == 413
+    assert resp.json() == {"error": "Request body too large", "max_bytes": 64}
+
+
 def test_create_app_propagates_cancel_abort_timeout(monkeypatch) -> None:
     import opencode_a2a_server.app as app_module
 

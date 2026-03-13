@@ -27,8 +27,14 @@ fi
 : "${A2A_PUBLIC_URL:?}"
 : "${A2A_STREAMING:=true}"
 : "${A2A_OTEL_INSTRUMENTATION_ENABLED:=false}"
+: "${A2A_MAX_REQUEST_BODY_BYTES:=1048576}"
 : "${A2A_CANCEL_ABORT_TIMEOUT_SECONDS:=2.0}"
 : "${A2A_ENABLE_SESSION_SHELL:=false}"
+: "${A2A_STRICT_ISOLATION:=false}"
+: "${A2A_SYSTEMD_TASKS_MAX:=512}"
+: "${A2A_SYSTEMD_LIMIT_NOFILE:=65536}"
+: "${A2A_SYSTEMD_MEMORY_MAX:=}"
+: "${A2A_SYSTEMD_CPU_QUOTA:=}"
 : "${ENABLE_SECRET_PERSISTENCE:=false}"
 
 PROJECT_DIR="${DATA_ROOT}/${PROJECT_NAME}"
@@ -47,6 +53,9 @@ OPENCODE_LOCAL_SHARE_DIR="${PROJECT_DIR}/.local/share/opencode"
 OPENCODE_BIN_DIR="${OPENCODE_LOCAL_SHARE_DIR}/bin"
 DATA_DIR="${PROJECT_DIR}/.local/share/opencode/storage/session"
 SECRET_ENV_KEYS=("${PROVIDER_SECRET_ENV_KEYS[@]}")
+SYSTEMD_UNIT_DIR="/etc/systemd/system"
+OPENCODE_OVERRIDE_DIR="${SYSTEMD_UNIT_DIR}/opencode@${PROJECT_NAME}.service.d"
+A2A_OVERRIDE_DIR="${SYSTEMD_UNIT_DIR}/opencode-a2a-server@${PROJECT_NAME}.service.d"
 
 is_truthy() {
   case "${1,,}" in
@@ -79,6 +88,24 @@ append_env_line() {
   printf '%s=%s\n' "$key" "$value" >>"$file"
 }
 
+require_nonnegative_integer() {
+  local key="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+    echo "${key} must be a non-negative integer, got: ${value}" >&2
+    exit 1
+  fi
+}
+
+require_positive_integer() {
+  local key="$1"
+  local value="$2"
+  if [[ ! "$value" =~ ^[0-9]+$ ]] || [[ "$value" == "0" ]]; then
+    echo "${key} must be a positive integer, got: ${value}" >&2
+    exit 1
+  fi
+}
+
 # DATA_ROOT must be traversable by the per-project system user. In hardened
 # deployments, using a non-traversable DATA_ROOT (missing o+x) will break
 # OpenCode writes to $HOME/.cache, $HOME/.local/share, and $HOME/.local/state.
@@ -103,6 +130,9 @@ ensure_data_root_accessible() {
 }
 
 ensure_data_root_accessible "$DATA_ROOT"
+require_nonnegative_integer "A2A_MAX_REQUEST_BODY_BYTES" "$A2A_MAX_REQUEST_BODY_BYTES"
+require_positive_integer "A2A_SYSTEMD_TASKS_MAX" "$A2A_SYSTEMD_TASKS_MAX"
+require_positive_integer "A2A_SYSTEMD_LIMIT_NOFILE" "$A2A_SYSTEMD_LIMIT_NOFILE"
 
 get_user_home() {
   getent passwd "$1" | awk -F: '{print $6}'
@@ -280,6 +310,7 @@ a2a_env_tmp="$(mktemp)"
   append_env_line "$a2a_env_tmp" "OTEL_INSTRUMENTATION_A2A_SDK_ENABLED" "${A2A_OTEL_INSTRUMENTATION_ENABLED:-false}"
   append_env_line "$a2a_env_tmp" "A2A_LOG_PAYLOADS" "${A2A_LOG_PAYLOADS:-false}"
   append_env_line "$a2a_env_tmp" "A2A_LOG_BODY_LIMIT" "${A2A_LOG_BODY_LIMIT:-0}"
+  append_env_line "$a2a_env_tmp" "A2A_MAX_REQUEST_BODY_BYTES" "${A2A_MAX_REQUEST_BODY_BYTES}"
   append_env_line "$a2a_env_tmp" "A2A_CANCEL_ABORT_TIMEOUT_SECONDS" "${A2A_CANCEL_ABORT_TIMEOUT_SECONDS}"
   append_env_line "$a2a_env_tmp" "A2A_ENABLE_SESSION_SHELL" "${A2A_ENABLE_SESSION_SHELL}"
   append_env_line "$a2a_env_tmp" "OPENCODE_BASE_URL" "http://${OPENCODE_BIND_HOST}:${OPENCODE_BIND_PORT}"
@@ -297,6 +328,40 @@ a2a_env_tmp="$(mktemp)"
 }
 sudo install -m 600 -o root -g root "$a2a_env_tmp" "$CONFIG_DIR/a2a.env"
 rm -f "$a2a_env_tmp"
+
+systemd_override_tmp="$(mktemp)"
+{
+  echo "[Service]"
+  echo "PrivateDevices=true"
+  echo "ProtectHome=true"
+  echo "ProtectKernelTunables=true"
+  echo "ProtectKernelModules=true"
+  echo "ProtectControlGroups=true"
+  echo "RestrictSUIDSGID=true"
+  echo "LockPersonality=true"
+  echo "RestrictNamespaces=true"
+  echo "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"
+  echo "TasksMax=${A2A_SYSTEMD_TASKS_MAX}"
+  echo "LimitNOFILE=${A2A_SYSTEMD_LIMIT_NOFILE}"
+  if [[ -n "${A2A_SYSTEMD_MEMORY_MAX}" ]]; then
+    echo "MemoryMax=${A2A_SYSTEMD_MEMORY_MAX}"
+  fi
+  if [[ -n "${A2A_SYSTEMD_CPU_QUOTA}" ]]; then
+    echo "CPUQuota=${A2A_SYSTEMD_CPU_QUOTA}"
+  fi
+  if is_truthy "${A2A_STRICT_ISOLATION}"; then
+    # InaccessiblePaths cannot nest allow-lists underneath it. Use a tmpfs
+    # view for DATA_ROOT and bind back only this project's directory.
+    echo "TemporaryFileSystem=${DATA_ROOT}:ro"
+    echo "BindPaths=${PROJECT_DIR}:${PROJECT_DIR}"
+    echo "ReadWritePaths="
+    echo "ReadWritePaths=${PROJECT_DIR}"
+  fi
+} >"$systemd_override_tmp"
+sudo install -d -m 755 -o root -g root "$OPENCODE_OVERRIDE_DIR" "$A2A_OVERRIDE_DIR"
+sudo install -m 644 -o root -g root "$systemd_override_tmp" "${OPENCODE_OVERRIDE_DIR}/override.conf"
+sudo install -m 644 -o root -g root "$systemd_override_tmp" "${A2A_OVERRIDE_DIR}/override.conf"
+rm -f "$systemd_override_tmp"
 
 if [[ "$PERSIST_SECRETS" == "true" ]]; then # pragma: allowlist secret
   a2a_secret_env_tmp="$(mktemp)"
