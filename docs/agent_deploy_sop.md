@@ -151,6 +151,26 @@ GH_TOKEN="${GH_TOKEN}" A2A_BEARER_TOKEN="${A2A_BEARER_TOKEN}" ENABLE_SECRET_PERS
 ./scripts/deploy.sh project=alpha a2a_port=8010 a2a_host=127.0.0.1
 ```
 
+#### Option A3: shell-enabled systemd deploy with stricter isolation
+
+Use this only for trusted operators who explicitly need
+`opencode.sessions.shell`.
+
+```bash
+./scripts/deploy.sh \
+  project=alpha \
+  a2a_port=8010 \
+  a2a_host=127.0.0.1 \
+  a2a_enable_session_shell=true \
+  a2a_strict_isolation=true
+```
+
+Recommended additions for shell-enabled instances:
+
+- keep the default systemd hardening drop-ins
+- consider `a2a_systemd_memory_max=<value>` and `a2a_systemd_cpu_quota=<value>`
+- verify audit lines with `journalctl ... | grep session_shell_audit`
+
 Public URL example:
 
 ```bash
@@ -191,6 +211,14 @@ Success criteria:
 - `opencode@<project>.service` and `opencode-a2a-server@<project>.service`
   are active/running
 - `GET /health` returns HTTP 200 with `{"status":"ok"}`
+- requests above `A2A_MAX_REQUEST_BODY_BYTES` are rejected with HTTP `413`
+
+Inspect hardening overrides:
+
+```bash
+sudo systemctl cat opencode@alpha.service
+sudo systemctl cat opencode-a2a-server@alpha.service
+```
 
 ### Release / Uninstall
 
@@ -211,6 +239,7 @@ Notes:
 - shared template units are not removed
 - preview mode is non-destructive
 - uninstall may return exit code `2` when completion includes non-fatal warnings
+- uninstall removes instance-specific systemd drop-ins before `daemon-reload`
 
 ## Path B: Lightweight Deploy (`deploy_light.sh`)
 

@@ -32,6 +32,8 @@ Key variables to understand protocol behavior:
   `opencode.sessions.shell`.
 - `A2A_LOG_PAYLOADS` / `A2A_LOG_BODY_LIMIT`: payload logging behavior and
   truncation.
+- `A2A_MAX_REQUEST_BODY_BYTES`: runtime request-body limit. Oversized requests
+  return HTTP `413`.
 - `A2A_SESSION_CACHE_TTL_SECONDS` / `A2A_SESSION_CACHE_MAXSIZE`: session cache
   behavior for `(identity, contextId) -> session_id`.
 - `A2A_CANCEL_ABORT_TIMEOUT_SECONDS`: best-effort timeout for upstream
@@ -84,6 +86,8 @@ Key variables to understand protocol behavior:
   `Task.metadata.shared.usage` with the same field schema.
 - Requests require `Authorization: Bearer <token>`; otherwise `401` is
   returned. Agent Card endpoints are public.
+- Requests above `A2A_MAX_REQUEST_BODY_BYTES` are rejected with HTTP `413`
+  before transport handling.
 - Within one `opencode-a2a-server` instance, all consumers share the same
   underlying OpenCode workspace/environment. This deployment model is not
   tenant-isolated by default.
