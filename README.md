@@ -141,6 +141,9 @@ uv run pytest
 - [docs/guide.md](docs/guide.md)
   Product behavior, API contracts, and detailed streaming/session/interrupt
   consumption guidance.
+- [docs/agent_deploy_sop.md](docs/agent_deploy_sop.md)
+  Operator-facing SOP for choosing, starting, verifying, and releasing
+  `deploy.sh` vs `deploy_light.sh`.
 - [scripts/README.md](scripts/README.md)
   Entry points for init, deploy, lightweight deploy, local start, and
   uninstall scripts.
