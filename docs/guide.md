@@ -72,9 +72,13 @@ Key variables to understand protocol behavior:
   such as `step-finish`; non-usage parts with similar fields are ignored.
   Interrupt events (`permission.asked` / `question.asked`) are mapped to
   `TaskStatusUpdateEvent(final=false, state=input-required)` with details at
-  `metadata.shared.interrupt` (including `request_id`, interrupt `type`, and
-  normalized minimal callback payload). Resolved interrupt events only clear
-  internal pending state; they do not emit a separate outward status event.
+  `metadata.shared.interrupt` (including `request_id`, interrupt `type`,
+  `phase=asked`, and normalized minimal callback payload). Resolved interrupt
+  events (`permission.replied` / `question.replied` / `question.rejected`) are
+  emitted as `TaskStatusUpdateEvent(final=false, state=working)` with
+  `metadata.shared.interrupt.phase=resolved` and a normalized
+  `metadata.shared.interrupt.resolution`. Duplicate or unknown resolved events
+  are suppressed unless the matching request is still pending.
   Non-streaming requests return a `Task` directly.
 - Non-streaming `message:send` responses may include normalized token usage at
   `Task.metadata.shared.usage` with the same field schema.
