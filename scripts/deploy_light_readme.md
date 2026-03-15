@@ -5,10 +5,10 @@ starting one local OpenCode + A2A instance in the foreground.
 
 ## Convergence Notice (#181)
 
-`deploy_light.sh` is converging into a foreground-only launcher. It no longer
-manages background process lifecycles (nohup/stop/restart). It is designed to be
-consumed by external process managers like `pm2`, `systemd`, or higher-level
-orchestrators for **parameterized self-deployment** (#145).
+`deploy_light.sh` has converged into a foreground-only launcher. It no longer
+manages background process lifecycles (nohup/stop/restart) or per-instance log/PID files.
+It is designed to be consumed by external process managers like `pm2`, `systemd`,
+or higher-level orchestrators for **parameterized self-deployment** (#145).
 
 Scope:
 
@@ -28,22 +28,25 @@ export A2A_BEARER_TOKEN='<a2a-token>'
 Start one instance (foreground):
 
 ```bash
+./scripts/deploy_light.sh workdir=/abs/path/to/workspace
+```
+
+The script accepts an optional `start` command for backward compatibility:
+
+```bash
 ./scripts/deploy_light.sh start workdir=/abs/path/to/workspace
 ```
 
 Recommended consumption with `pm2`:
 
 ```bash
-pm2 start ./scripts/deploy_light.sh --name "a2a-alpha" -- start workdir=/data/alpha a2a_port=8010
+pm2 start ./scripts/deploy_light.sh --name "a2a-alpha" -- workdir=/data/alpha a2a_port=8010
 ```
 
 ## Key Inputs
 
 - `workdir`:
-  required for `start` / `restart`; becomes the default `OPENCODE_DIRECTORY`
-  exposed to the A2A layer
-- `instance`:
-  instance identifier used to isolate pid/log directories
+  required; becomes the default `OPENCODE_DIRECTORY` exposed to the A2A layer
 - `a2a_host` / `a2a_port` / `a2a_public_url`:
   A2A listen address and published URL
 - `opencode_bind_host` / `opencode_bind_port`:
@@ -52,31 +55,12 @@ pm2 start ./scripts/deploy_light.sh --name "a2a-alpha" -- start workdir=/data/al
   default upstream provider/model selection
 - `opencode_lsp`:
   whether to enable LSP in generated OpenCode config content
-- `log_root` / `run_root`:
-  root directories for per-instance logs and pid/metadata files
 - `start_timeout_seconds`:
   readiness wait budget for both OpenCode and A2A startup
 
-## Instance Layout
-
-For `instance=demo`, the script writes:
-
-- runtime metadata and pid files under `run/light/demo/`
-- process logs under `logs/light/demo/`
-
-Each instance uses separate files for:
-
-- `opencode.pid`
-- `a2a.pid`
-- `metadata.env`
-- `opencode.log`
-- `a2a.log`
-
-This avoids the broad `pgrep -f` matching used by the foreground local runner and reduces the risk of touching unrelated local processes.
-
 ## Readiness Behavior
 
-On `start`, the script:
+On start, the script:
 
 1. validates required inputs and local commands
 2. starts `opencode serve`
@@ -84,7 +68,7 @@ On `start`, the script:
 4. starts `opencode-a2a-server`
 5. waits until the local Agent Card endpoint responds successfully
 
-If either process fails readiness, the script stops any already-started child process and exits non-zero.
+If either process fails readiness or exits, the script stops the other child process and exits.
 
 ## Security / Scope Notes
 
