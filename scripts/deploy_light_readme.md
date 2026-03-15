@@ -13,7 +13,7 @@ orchestrators for **parameterized self-deployment** (#145).
 Scope:
 
 - stays in foreground (stdout/stderr direct output)
-- supports the same machine-readable contract as `deploy.sh`
+- supports the same **Autonomous Deployment Contract** as `deploy.sh`
 - does **not** create system users or isolated data roots
 - best suited for local development or ephemeral agent-managed instances
 

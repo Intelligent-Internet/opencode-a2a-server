@@ -58,9 +58,9 @@ single-tenant trust boundary. This project supports **parameterized
 self-deployment**, allowing consumers to spin up their own isolated instance
 pairs programmatically.
 
-- **Unified Deployment Contract:** Both `deploy.sh` and `deploy_light.sh` follow
-  a machine-readable contract for input validation, readiness checking, and
-  status reporting.
+- **Autonomous Deployment Contract:** Both `deploy.sh` and `deploy_light.sh`
+  follow a machine-readable contract for input validation, readiness checking,
+  and status reporting.
 - **Isolation by Instance:** OpenCode may manage multiple projects, but one
   deployed instance is not a secure multi-tenant runtime.
 - **Consumption Strategy:** For mutually untrusted tenants, consumers should
